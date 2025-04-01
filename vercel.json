@@ -1,0 +1,12 @@
+{
+    "version": 2,
+    "functions": {
+      "api/**/*": {
+        "memory": 1024
+      }
+    },
+    "routes": [
+      { "src": "/api/tests", "dest": "/api/tests.js" },
+      { "src": "/api/tests/(.*)", "dest": "/api/tests/[id].js?id=$1" }
+    ]
+  }
