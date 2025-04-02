@@ -32,15 +32,22 @@ const getAirtableBase = () => {
 async function handleGet(req, res) {
   const { id } = req.query;
   
-  if (!id) {
-    return res.status(400).json({ error: 'Image ID is required' });
-  }
+  console.log('Received request for image ID:', id);
   
   try {
     const base = getAirtableBase();
     const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
+    console.log('Using Airtable table:', tableImages);
     
-    // Buscar por ID en la tabla de imágenes
+    // Verificar si tenemos todas las variables de entorno
+    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
+      console.warn('Missing Airtable credentials!');
+      console.log('AIRTABLE_API_KEY defined:', !!process.env.AIRTABLE_API_KEY);
+      console.log('AIRTABLE_BASE_ID defined:', !!process.env.AIRTABLE_BASE_ID);
+    }
+    
+    // Buscar por ID en la tabla
+    console.log(`Searching for image with ID: ${id}`);
     const records = await base(tableImages)
       .select({
         filterByFormula: `{ID}="${id}"`,
@@ -48,27 +55,35 @@ async function handleGet(req, res) {
       })
       .all();
       
+    console.log(`Found ${records.length} records for ID: ${id}`);
+    
     if (records.length === 0) {
-      return res.status(404).json({ error: 'Image not found' });
+      return res.status(404).json({ error: 'Image not found', id });
     }
     
     const record = records[0];
-    const fields = record.fields;
+    console.log('Record fields:', Object.keys(record.fields));
+    console.log('Image field present:', !!record.fields.Image);
     
-    // Verificar si hay una imagen adjunta
-    if (fields.Image && fields.Image.length > 0 && fields.Image[0].url) {
-      return res.status(200).json({
-        id,
-        url: fields.Image[0].url,
-        filename: fields.Image[0].filename || 'image.jpg',
-        message: 'Image loaded successfully'
+    if (record.fields.Image && record.fields.Image.length > 0) {
+      console.log('Image URL:', record.fields.Image[0].url);
+      return res.status(200).json({ 
+        id, 
+        url: record.fields.Image[0].url,
+        message: 'Image found successfully' 
       });
     } else {
-      return res.status(404).json({ error: 'Image record found but no image data available' });
+      return res.status(404).json({ 
+        error: 'Image record found but no image data available',
+        recordId: record.id
+      });
     }
   } catch (error) {
-    console.error('Error loading image:', error);
-    return res.status(500).json({ error: 'Failed to load image' });
+    console.error('Error fetching image:', error);
+    return res.status(500).json({ 
+      error: 'Error fetching image',
+      details: error.message
+    });
   }
 }
 

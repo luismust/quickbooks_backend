@@ -114,40 +114,57 @@ async function handlePost(req, res) {
     };
     
     // Simplificar preguntas y manejar imágenes
-    const simplifiedQuestions = testToSave.questions.map(q => {
-      const simplifiedQuestion = { ...q };
+const simplifiedQuestions = testToSave.questions.map(q => {
+  const simplifiedQuestion = { ...q };
+  
+  // Manejar imágenes según su tipo
+  if (q.image) {
+    if (q.image.startsWith('data:')) {
+      // Generar un ID único para la imagen (puede usar el ID de la pregunta o un ID único)
+      const imageId = q.id || generateUniqueId();
       
-      // Manejar imágenes según su tipo
-      if (q.image) {
-        if (q.image.startsWith('data:')) {
-          // Base64 - guardamos referencia
-          const imageId = q.id;
-          simplifiedQuestion.image = `image_reference_${imageId}`;
-          
-          // NUEVO: Guardar la imagen en la tabla Images
-          saveImageToAirtable(base, tableImages, imageId, q.image);
-          
-          // Eliminar _imageData para que no duplique el contenido
-          delete simplifiedQuestion._imageData;
-        }
-        else if (q.image.startsWith('blob:')) {
-          if (q._imageData) {
-            const imageId = q.id;
-            simplifiedQuestion.image = `image_reference_${imageId}`;
-            
-            // NUEVO: Guardar la imagen en la tabla Images
-            saveImageToAirtable(base, tableImages, imageId, q._imageData);
-            
-            // Eliminar _imageData para que no duplique el contenido
-            delete simplifiedQuestion._imageData;
-          } else {
-            simplifiedQuestion.image = `image_reference_${q.id}`;
-          }
-        }
+      // Guardar la referencia en la pregunta
+      simplifiedQuestion.image = `image_reference_${imageId}`;
+      
+      // IMPORTANTE: Guardar la imagen en la tabla Images
+      try {
+        // Extraer el contenido base64 real (sin el prefijo data:image/xxx;base64,)
+        const base64Content = q.image.split(',')[1];
+        
+        // Crear o actualizar el registro en la tabla Images
+        saveImageToAirtable(base, imageId, q.image);
+        
+        console.log(`Processed image for question ${q.id}, saved with reference: image_reference_${imageId}`);
+      } catch (imgError) {
+        console.error(`Error saving image for question ${q.id}:`, imgError);
       }
       
-      return simplifiedQuestion;
-    });
+      // No necesitamos duplicar la imagen en _imageData si ya la guardamos en Images
+      delete simplifiedQuestion._imageData;
+    }
+    else if (q.image.startsWith('blob:')) {
+      if (q._imageData) {
+        const imageId = q.id || generateUniqueId();
+        simplifiedQuestion.image = `image_reference_${imageId}`;
+        
+        // Guardar _imageData en la tabla Images
+        try {
+          saveImageToAirtable(base, imageId, q._imageData);
+          console.log(`Processed blob image for question ${q.id}, saved with reference: image_reference_${imageId}`);
+        } catch (imgError) {
+          console.error(`Error saving blob image for question ${q.id}:`, imgError);
+        }
+        
+        delete simplifiedQuestion._imageData;
+      } else {
+        console.warn(`Question ${q.id} has blob URL but no _imageData, using placeholder reference`);
+        simplifiedQuestion.image = `image_reference_${q.id}`;
+      }
+    }
+  }
+  
+  return simplifiedQuestion;
+});
     
     // Crear registro en Airtable
     const recordData = {
@@ -181,23 +198,29 @@ async function handlePost(req, res) {
   }
 }
 
-// NUEVA FUNCIÓN: Guardar imagen en la tabla Images
-async function saveImageToAirtable(base, tableImages, imageId, imageData) {
+// Función para guardar imágenes en Airtable
+async function saveImageToAirtable(base, imageId, imageData) {
+  const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
+  
   try {
-    // Comprobar si ya existe la imagen con ese ID
+    // Verificar si ya existe esta imagen en la tabla
     const existingRecords = await base(tableImages)
       .select({
         filterByFormula: `{ID}="${imageId}"`,
         maxRecords: 1
       })
       .all();
-    
+      
     if (existingRecords.length > 0) {
-      // Actualizar imagen existente
+      // La imagen ya existe, actualizarla
       await base(tableImages).update([{
         id: existingRecords[0].id,
         fields: {
-          Image: [{ url: imageData }],
+          ID: imageId,
+          // Para Airtable, las imágenes se guardan como array de objetos con URL
+          Image: [{ 
+            url: imageData 
+          }],
           Updated: new Date().toISOString()
         }
       }]);
@@ -207,16 +230,20 @@ async function saveImageToAirtable(base, tableImages, imageId, imageData) {
       await base(tableImages).create([{
         fields: {
           ID: imageId,
-          Image: [{ url: imageData }],
-          Created: new Date().toISOString(),
-          Description: `Image for question ${imageId}`
+          Image: [{ 
+            url: imageData 
+          }],
+          Description: `Image for question ${imageId}`,
+          Created: new Date().toISOString()
         }
       }]);
       console.log(`Created new image with ID: ${imageId}`);
     }
+    
+    return true;
   } catch (error) {
-    console.error(`Error saving image ${imageId} to Airtable:`, error);
-    // No lanzamos el error para que no interrumpa el guardado del test
+    console.error(`Error in saveImageToAirtable for ${imageId}:`, error);
+    throw error; // Re-lanzar para manejar arriba
   }
 }
 
