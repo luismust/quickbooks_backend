@@ -1,6 +1,9 @@
 // api/tests.js
 const Airtable = require('airtable');
 const cors = require('cors');
+const fetch = require('node-fetch');
+const FormData = require('form-data');
+const axios = require('axios');
 
 // Configurar CORS para permitir solicitudes desde tu dominio
 const allowCors = cors({
@@ -80,6 +83,11 @@ async function handleGet(req, res) {
   }
 }
 
+// Función auxiliar para generar un ID único
+function generateUniqueId() {
+  return 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
 // Manejador de la ruta POST /api/tests
 async function handlePost(req, res) {
   try {
@@ -113,58 +121,70 @@ async function handlePost(req, res) {
       failingMessage: test.failingMessage || "Try again"
     };
     
-    // Simplificar preguntas y manejar imágenes
-const simplifiedQuestions = testToSave.questions.map(q => {
-  const simplifiedQuestion = { ...q };
-  
-  // Manejar imágenes según su tipo
-  if (q.image) {
-    if (q.image.startsWith('data:')) {
-      // Generar un ID único para la imagen (puede usar el ID de la pregunta o un ID único)
-      const imageId = q.id || generateUniqueId();
+    // Procesar imágenes y simplificar preguntas
+    const imageUploadPromises = [];
+    const simplifiedQuestions = testToSave.questions.map(q => {
+      const simplifiedQuestion = { ...q };
       
-      // Guardar la referencia en la pregunta
-      simplifiedQuestion.image = `image_reference_${imageId}`;
-      
-      // IMPORTANTE: Guardar la imagen en la tabla Images
-      try {
-        // Extraer el contenido base64 real (sin el prefijo data:image/xxx;base64,)
-        const base64Content = q.image.split(',')[1];
-        
-        // Crear o actualizar el registro en la tabla Images
-        saveImageToAirtable(base, imageId, q.image);
-        
-        console.log(`Processed image for question ${q.id}, saved with reference: image_reference_${imageId}`);
-      } catch (imgError) {
-        console.error(`Error saving image for question ${q.id}:`, imgError);
-      }
-      
-      // No necesitamos duplicar la imagen en _imageData si ya la guardamos en Images
-      delete simplifiedQuestion._imageData;
-    }
-    else if (q.image.startsWith('blob:')) {
-      if (q._imageData) {
-        const imageId = q.id || generateUniqueId();
-        simplifiedQuestion.image = `image_reference_${imageId}`;
-        
-        // Guardar _imageData en la tabla Images
-        try {
-          saveImageToAirtable(base, imageId, q._imageData);
-          console.log(`Processed blob image for question ${q.id}, saved with reference: image_reference_${imageId}`);
-        } catch (imgError) {
-          console.error(`Error saving blob image for question ${q.id}:`, imgError);
+      // Manejar imágenes según su tipo
+      if (q.image) {
+        if (q.image.startsWith('data:')) {
+          // Generar un ID único para la imagen
+          const imageId = q.id || generateUniqueId();
+          
+          // Guardar la referencia en la pregunta
+          simplifiedQuestion.image = `image_reference_${imageId}`;
+          
+          // Agregar a la lista de promesas de subida de imágenes
+          imageUploadPromises.push(
+            saveImageToAirtable(base, imageId, q.image)
+              .then(attachmentUrl => {
+                console.log(`Processed image for question ${q.id}, saved with reference: image_reference_${imageId}`);
+                // Guardar la URL real de la imagen en la pregunta para acceso directo
+                simplifiedQuestion.imageUrl = attachmentUrl;
+                return { questionId: q.id, imageId, attachmentUrl };
+              })
+              .catch(err => {
+                console.error(`Error saving image for question ${q.id}:`, err);
+                return { questionId: q.id, imageId, error: err.message };
+              })
+          );
+          
+          delete simplifiedQuestion._imageData;
         }
-        
-        delete simplifiedQuestion._imageData;
-      } else {
-        console.warn(`Question ${q.id} has blob URL but no _imageData, using placeholder reference`);
-        simplifiedQuestion.image = `image_reference_${q.id}`;
+        else if (q.image.startsWith('blob:')) {
+          if (q._imageData) {
+            const imageId = q.id || generateUniqueId();
+            simplifiedQuestion.image = `image_reference_${imageId}`;
+            
+            // Agregar a la lista de promesas
+            imageUploadPromises.push(
+              saveImageToAirtable(base, imageId, q._imageData)
+                .then(attachmentUrl => {
+                  console.log(`Processed blob image for question ${q.id}, saved with reference: image_reference_${imageId}`);
+                  // Guardar la URL real de la imagen en la pregunta para acceso directo
+                  simplifiedQuestion.imageUrl = attachmentUrl;
+                  return { questionId: q.id, imageId, attachmentUrl };
+                })
+                .catch(err => {
+                  console.error(`Error saving blob image for question ${q.id}:`, err);
+                  return { questionId: q.id, imageId, error: err.message };
+                })
+            );
+            
+            delete simplifiedQuestion._imageData;
+          } else {
+            console.warn(`Question ${q.id} has blob URL but no _imageData, using placeholder reference`);
+            simplifiedQuestion.image = `image_reference_${q.id}`;
+          }
+        }
       }
-    }
-  }
-  
-  return simplifiedQuestion;
-});
+      
+      return simplifiedQuestion;
+    });
+    
+    // Esperar a que todas las imágenes se suban
+    await Promise.all(imageUploadPromises);
     
     // Crear registro en Airtable
     const recordData = {
@@ -198,11 +218,40 @@ const simplifiedQuestions = testToSave.questions.map(q => {
   }
 }
 
-// Función para guardar imágenes en Airtable
+// Función para guardar imágenes en Airtable como attachments
 async function saveImageToAirtable(base, imageId, imageData) {
   const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
+  const baseId = process.env.AIRTABLE_BASE_ID;
+  const apiKey = process.env.AIRTABLE_API_KEY;
   
   try {
+    // Extraer información de la imagen base64
+    let fileName, mimeType, base64Content;
+    
+    if (imageData.startsWith('data:')) {
+      // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
+      const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      
+      if (!matches || matches.length !== 3) {
+        throw new Error('Invalid base64 image format');
+      }
+      
+      mimeType = matches[1];
+      base64Content = matches[2];
+      
+      // Generar un nombre de archivo basado en el tipo MIME
+      const extension = mimeType.split('/')[1] || 'jpg';
+      fileName = `image_${imageId}.${extension}`;
+    } else {
+      // Si no es data:, asumimos que es base64 directo
+      base64Content = imageData;
+      mimeType = 'image/jpeg'; // Asumimos JPEG por defecto
+      fileName = `image_${imageId}.jpg`;
+    }
+    
+    // Convertir base64 a Buffer
+    const buffer = Buffer.from(base64Content, 'base64');
+    
     // Verificar si ya existe esta imagen en la tabla
     const existingRecords = await base(tableImages)
       .select({
@@ -210,37 +259,56 @@ async function saveImageToAirtable(base, imageId, imageData) {
         maxRecords: 1
       })
       .all();
-      
-    if (existingRecords.length > 0) {
-      // La imagen ya existe, actualizarla
-      await base(tableImages).update([{
-        id: existingRecords[0].id,
+    
+    // URL para subir directamente el archivo a Airtable
+    const url = `https://api.airtable.com/v0/${baseId}/${tableImages}`;
+    
+    // Crear FormData para subir el archivo
+    const formData = new FormData();
+    formData.append('ID', imageId);
+    
+    // Agregar el archivo como un attachment
+    formData.append('Image', buffer, {
+      filename: fileName,
+      contentType: mimeType
+    });
+    
+    // Configurar la solicitud para subir el archivo
+    const recordId = existingRecords.length > 0 ? existingRecords[0].id : null;
+    const method = recordId ? 'PATCH' : 'POST';
+    const specificUrl = recordId ? `${url}/${recordId}` : url;
+    
+    // Realizar la solicitud a la API de Airtable
+    const response = await axios({
+      method: method,
+      url: specificUrl,
+      data: {
         fields: {
           ID: imageId,
-          // Para Airtable, las imágenes se guardan como array de objetos con URL
-          Image: [{ 
-            url: imageData 
-          }],
-          Updated: new Date().toISOString()
+          Image: [
+            {
+              filename: fileName,
+              type: mimeType,
+              content: base64Content
+            }
+          ]
         }
-      }]);
-      console.log(`Updated existing image with ID: ${imageId}`);
-    } else {
-      // Crear nueva imagen
-      await base(tableImages).create([{
-        fields: {
-          ID: imageId,
-          Image: [{ 
-            url: imageData 
-          }],
-          Description: `Image for question ${imageId}`,
-          Created: new Date().toISOString()
-        }
-      }]);
-      console.log(`Created new image with ID: ${imageId}`);
+      },
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // Obtener la URL de la imagen subida
+    let attachmentUrl = '';
+    if (response.data && response.data.fields && response.data.fields.Image) {
+      attachmentUrl = response.data.fields.Image[0].url;
     }
     
-    return true;
+    console.log(`${recordId ? 'Updated' : 'Created'} image with ID: ${imageId}`);
+    return attachmentUrl;
+    
   } catch (error) {
     console.error(`Error in saveImageToAirtable for ${imageId}:`, error);
     throw error; // Re-lanzar para manejar arriba
