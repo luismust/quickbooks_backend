@@ -1,18 +1,34 @@
 // api/tests.js
 const Airtable = require('airtable');
-const cors = require('cors');
 const fetch = require('node-fetch');
 const FormData = require('form-data');
 const axios = require('axios');
 
 // Configurar CORS para permitir solicitudes desde dominios específicos
-const allowCors = cors({
-  origin: ['https://quickbooks-test-black.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
-});
+const allowedOrigins = ['https://quickbooks-test-black.vercel.app', 'http://localhost:3000'];
+
+// Función para aplicar encabezados CORS
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  
+  // Verificar si el origen está permitido
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // Para desarrollo, podemos ser permisivos
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  // Otros encabezados CORS necesarios
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  // Asegurar que el Content-Type esté configurado para JSON en todas las respuestas
+  if (req.method !== 'OPTIONS') {
+    res.setHeader('Content-Type', 'application/json');
+  }
+}
 
 // Campos exactos de la tabla de tests en Airtable
 const FIELDS = {
@@ -26,11 +42,6 @@ const FIELDS = {
   IMAGES: 'images',
   PASSING_MESSAGE: 'passing_message',
   FAILING_MESSAGE: 'failing_message'
-};
-
-// Wrapper para añadir CORS a cada handler
-const handleWithCors = (handler) => async (req, res) => {
-  return allowCors(req, res, () => handler(req, res));
 };
 
 // Configurar Airtable
@@ -321,30 +332,32 @@ async function saveImageToAirtable(base, imageId, imageData) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Aplicar CORS a todas las solicitudes
-  return allowCors(req, res, async () => {
-    // Manejar específicamente las solicitudes OPTIONS para el preflight CORS
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-    
-    // Parse JSON body for POST requests
-    if (req.method === 'POST') {
-      if (typeof req.body === 'string') {
-        try {
-          req.body = JSON.parse(req.body);
-        } catch (error) {
-          return res.status(400).json({ error: 'Invalid JSON' });
-        }
+  // Configurar encabezados CORS para todas las solicitudes
+  setCorsHeaders(req, res);
+  
+  // Manejar solicitudes OPTIONS (preflight)
+  if (req.method === 'OPTIONS') {
+    // Para las solicitudes OPTIONS, establecer los encabezados específicos
+    res.setHeader('Content-Length', '0');
+    return res.status(200).end();
+  }
+  
+  // Parse JSON body for POST requests
+  if (req.method === 'POST') {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch (error) {
+        return res.status(400).json({ error: 'Invalid JSON' });
       }
     }
-    
-    if (req.method === 'GET') {
-      return handleGet(req, res);
-    } else if (req.method === 'POST') {
-      return handlePost(req, res);
-    } else {
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
-  });
+  }
+  
+  if (req.method === 'GET') {
+    return handleGet(req, res);
+  } else if (req.method === 'POST') {
+    return handlePost(req, res);
+  } else {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 };
