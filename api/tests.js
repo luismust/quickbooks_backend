@@ -4,32 +4,6 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const axios = require('axios');
 
-// Configurar CORS para permitir solicitudes desde dominios específicos
-const allowedOrigins = ['https://quickbooks-test-black.vercel.app', 'http://localhost:3000'];
-
-// Función para aplicar encabezados CORS
-function setCorsHeaders(req, res) {
-  const origin = req.headers.origin;
-  
-  // Verificar si el origen está permitido
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    // Para desarrollo, podemos ser permisivos
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
-  // Otros encabezados CORS necesarios
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  
-  // Asegurar que el Content-Type esté configurado para JSON en todas las respuestas
-  if (req.method !== 'OPTIONS') {
-    res.setHeader('Content-Type', 'application/json');
-  }
-}
-
 // Campos exactos de la tabla de tests en Airtable
 const FIELDS = {
   ID: 'id',
@@ -332,13 +306,17 @@ async function saveImageToAirtable(base, imageId, imageData) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Configurar encabezados CORS para todas las solicitudes
-  setCorsHeaders(req, res);
+  // Establecer encabezados CORS para todas las respuestas
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers', 
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
+  );
   
   // Manejar solicitudes OPTIONS (preflight)
   if (req.method === 'OPTIONS') {
-    // Para las solicitudes OPTIONS, establecer los encabezados específicos
-    res.setHeader('Content-Length', '0');
     return res.status(200).end();
   }
   
@@ -353,11 +331,16 @@ module.exports = async (req, res) => {
     }
   }
   
-  if (req.method === 'GET') {
-    return handleGet(req, res);
-  } else if (req.method === 'POST') {
-    return handlePost(req, res);
-  } else {
-    return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    if (req.method === 'GET') {
+      return await handleGet(req, res);
+    } else if (req.method === 'POST') {
+      return await handlePost(req, res);
+    } else {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (error) {
+    console.error('Unhandled error:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 };
