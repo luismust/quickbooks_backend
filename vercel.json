@@ -21,6 +21,7 @@
         "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version"
       }
     },
+    { "src": "/api/debug", "dest": "/api/debug.js" },
     { "src": "/api/tests", "dest": "/api/tests.js" },
     { "src": "/api/tests/(.*)", "dest": "/api/tests/[id].js?id=$1" }
   ],
@@ -30,6 +31,10 @@
       "maxDuration": 10
     },
     "api/cors-options.js": {
+      "memory": 128,
+      "maxDuration": 2
+    },
+    "api/debug.js": {
       "memory": 128,
       "maxDuration": 2
     }
