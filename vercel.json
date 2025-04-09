@@ -1,25 +1,26 @@
 {
-  "version": 2,
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "methods": ["OPTIONS"],
-      "status": 204,
-      "headers": {
-        "Access-Control-Allow-Origin": "https://quickbooks-test-black.vercel.app",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version",
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Max-Age": "86400"
-      }
+  "rewrites": [
+    { 
+      "source": "/(.*)", 
+      "has": [
+        {
+          "type": "method", 
+          "value": "OPTIONS"
+        }
+      ],
+      "destination": "/api/cors-options.js"
     },
-    { "src": "/api/tests", "dest": "/api/tests.js" },
-    { "src": "/api/tests/(.*)", "dest": "/api/tests/[id].js?id=$1" }
+    { "source": "/api/tests", "destination": "/api/tests.js" },
+    { "source": "/api/tests/(.*)", "destination": "/api/tests/[id].js?id=$1" }
   ],
   "functions": {
     "api/tests.js": {
       "memory": 1024,
       "maxDuration": 10
+    },
+    "api/cors-options.js": {
+      "memory": 128,
+      "maxDuration": 1
     }
   }
 }
