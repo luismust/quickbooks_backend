@@ -306,26 +306,18 @@ async function saveImageToAirtable(base, imageId, imageData) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Responder inmediatamente a OPTIONS sin ejecutar ningún código adicional
+  // Las solicitudes OPTIONS ahora son manejadas por la configuración de Vercel
   if (req.method === 'OPTIONS') {
-    // Establecer cabeceras CORS mínimas para OPTIONS
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
-    
-    // Responder con 200 OK sin contenido
-    res.status(200).end();
-    return;
+    return res.status(204).end();
   }
   
   // Para las demás solicitudes, establecer cabeceras CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
+    'Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version'
   );
   
   try {
