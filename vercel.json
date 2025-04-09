@@ -11,7 +11,27 @@
     }
   ],
   "rewrites": [
+    { 
+      "source": "/api/:path*", 
+      "has": [
+        {
+          "type": "header",
+          "key": "Access-Control-Request-Method"
+        }
+      ],
+      "destination": "/api/options.js"
+    },
     { "source": "/api/tests", "destination": "/api/tests.js" },
     { "source": "/api/tests/(.*)", "destination": "/api/tests/[id].js?id=$1" }
-  ]
+  ],
+  "functions": {
+    "api/tests.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/options.js": {
+      "memory": 128,
+      "maxDuration": 1
+    }
+  }
 }
