@@ -5,14 +5,9 @@
         "memory": 1024
       }
     },
-    "routes": [
-      { "src": "/api/tests", "dest": "/api/tests.js" },
-      { "src": "/api/tests/(.*)", "dest": "/api/tests/[id].js?id=$1" },
-      {
-        "src": "/api/(.*)",
-        "methods": ["OPTIONS"],
-        "dest": "/api/tests.js"
-      }
+    "rewrites": [
+      { "source": "/api/tests", "destination": "/api/tests.js" },
+      { "source": "/api/tests/(.*)", "destination": "/api/tests/[id].js?id=$1" }
     ],
     "headers": [
       {
