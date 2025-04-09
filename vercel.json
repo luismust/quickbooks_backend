@@ -7,7 +7,17 @@
     },
     "rewrites": [
       { "source": "/api/tests", "destination": "/api/tests.js" },
-      { "source": "/api/tests/(.*)", "destination": "/api/tests/[id].js?id=$1" }
+      { "source": "/api/tests/(.*)", "destination": "/api/tests/[id].js?id=$1" },
+      { 
+        "source": "/api/:path*", 
+        "has": [
+          {
+            "type": "header",
+            "key": "Access-Control-Request-Method"
+          }
+        ],
+        "destination": "/api/cors-preflight.js"
+      }
     ],
     "headers": [
       {
