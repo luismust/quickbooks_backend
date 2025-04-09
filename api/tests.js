@@ -306,19 +306,30 @@ async function saveImageToAirtable(base, imageId, imageData) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Establecer encabezados CORS para todas las respuestas
+  // Establecer encabezados CORS para todas las respuestas - asegúrate de que estos se envíen siempre primero
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  // Para desarrollo, permitimos múltiples orígenes
+  const allowedOrigins = ['https://quickbooks-test-black.vercel.app', 'http://localhost:3000'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // En caso de que el origen no esté en la lista, permitimos todos (para depuración)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
+  // Agregamos el Max-Age para reducir las solicitudes preflight
+  res.setHeader('Access-Control-Max-Age', '86400');
 
-  // Para solicitudes OPTIONS, responder inmediatamente
+  // Aseguramos que respondemos a OPTIONS inmediatamente
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
   
   // Parse JSON body for POST requests
