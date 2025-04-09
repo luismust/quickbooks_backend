@@ -1,17 +1,14 @@
 {
   "rewrites": [
-    { 
-      "source": "/(.*)", 
-      "has": [
-        {
-          "type": "method", 
-          "value": "OPTIONS"
-        }
-      ],
-      "destination": "/api/cors-options.js"
-    },
     { "source": "/api/tests", "destination": "/api/tests.js" },
     { "source": "/api/tests/(.*)", "destination": "/api/tests/[id].js?id=$1" }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "methods": ["OPTIONS"],
+      "dest": "/api/cors-options.js"
+    }
   ],
   "headers": [
     {
