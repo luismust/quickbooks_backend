@@ -249,8 +249,7 @@ async function handlePost(req, res) {
         [FIELDS.MAX_SCORE]: testToSave.maxScore,
         [FIELDS.MIN_SCORE]: testToSave.minScore,
         [FIELDS.PASSING_MESSAGE]: testToSave.passingMessage,
-        [FIELDS.FAILING_MESSAGE]: testToSave.failingMessage,
-        [FIELDS.CREATED_AT]: new Date().toISOString()
+        [FIELDS.FAILING_MESSAGE]: testToSave.failingMessage
       }
     };
     
