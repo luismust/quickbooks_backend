@@ -1,65 +1,18 @@
 {
   "version": 2,
   "buildCommand": "echo 'No build step required'",
-  "devCommand": null,
-  "installCommand": "npm install",
   "outputDirectory": ".",
-  "public": false,
+  "public": true,
   "routes": [
-    {
-      "src": "/(.*)",
-      "methods": ["OPTIONS"],
-      "dest": "/api/cors-options.js",
-      "headers": {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Origin": "https://quickbooks-test-black.vercel.app",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version",
-        "Access-Control-Max-Age": "86400"
-      }
-    },
-    {
-      "src": "/api/(.*)",
-      "headers": {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Origin": "https://quickbooks-test-black.vercel.app",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version",
-        "Access-Control-Max-Age": "86400"
-      }
-    },
-    { "src": "/api/debug", "dest": "/api/debug.js" },
-    { "src": "/api/debug-post", "dest": "/api/debug-post.js" },
-    { "src": "/api/tests-simple", "dest": "/api/tests-simple.js" },
-    { "src": "/api/airtable-check", "dest": "/api/airtable-check.js" },
     { "src": "/api/tests", "dest": "/api/tests.js" },
-    { "src": "/api/tests/(.*)", "dest": "/api/tests.js?id=$1" },
     { "src": "/api/images", "dest": "/api/images.js" },
-    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" },
-    { "src": "/image-upload-debug.html", "dest": "/api/serve-test-page.js" },
-    { "src": "/test-upload-example.html", "dest": "/api/serve-test-page.js?page=test-upload" },
-    { "src": "/(.*)", "dest": "/api/index.js" }
+    { "src": "/api/airtable-check", "dest": "/api/airtable-check.js" },
+    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" }
   ],
   "functions": {
     "api/tests.js": {
       "memory": 1024,
       "maxDuration": 20
-    },
-    "api/tests-simple.js": {
-      "memory": 1024,
-      "maxDuration": 10
-    },
-    "api/cors-options.js": {
-      "memory": 128,
-      "maxDuration": 2
-    },
-    "api/debug.js": {
-      "memory": 128,
-      "maxDuration": 2
-    },
-    "api/debug-post.js": {
-      "memory": 128,
-      "maxDuration": 5
     },
     "api/images.js": {
       "memory": 1024,
@@ -72,10 +25,6 @@
     "api/tests-image-debug.js": {
       "memory": 1024,
       "maxDuration": 30
-    },
-    "api/index.js": {
-      "memory": 128,
-      "maxDuration": 2
     }
   },
   "github": {

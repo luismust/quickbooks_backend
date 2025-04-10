@@ -1,13 +1,15 @@
 // api/index.js - Punto de entrada para Vercel
 const testsHandler = require('./tests');
+const fs = require('fs');
+const path = require('path');
 
-// Endpoint principal que redirige a /api/tests
+// Endpoint principal
 module.exports = async (req, res) => {
-  console.log('API Root accessed, redirecting to /api/tests');
+  console.log('API Root accessed');
   
   // Configurar CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
@@ -16,8 +18,16 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
   
-  // Para solicitudes GET, responder con información de estado
-  if (req.method === 'GET') {
+  // Verificar la ruta solicitada
+  const { pathname = '/' } = new URL(req.url, `http://${req.headers.host}`);
+  
+  // Servir las páginas de prueba
+  if (pathname === '/image-upload-debug.html' || pathname === '/test-upload-example.html') {
+    return serveTestPage(req, res, pathname);
+  }
+  
+  // Para solicitudes GET a la raíz, responder con información de estado
+  if (req.method === 'GET' && pathname === '/') {
     return res.status(200).json({
       status: 'ok',
       message: 'Quickbook Backend API',
@@ -38,4 +48,39 @@ module.exports = async (req, res) => {
   
   // Para otros métodos, devolver error
   return res.status(405).json({ error: 'Method not allowed' });
-}; 
+};
+
+// Función para servir las páginas de prueba
+async function serveTestPage(req, res, pathname) {
+  try {
+    // Determinar qué archivo servir basado en la ruta
+    let filePath;
+    if (pathname === '/image-upload-debug.html') {
+      filePath = path.join(process.cwd(), 'image-upload-debug.html');
+    } else if (pathname === '/test-upload-example.html') {
+      filePath = path.join(process.cwd(), 'test-upload-example.html');
+    } else {
+      return res.status(404).json({ error: 'Test page not found' });
+    }
+    
+    // Verificar si el archivo existe
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Test page file not found' });
+    }
+    
+    // Leer el archivo
+    const content = fs.readFileSync(filePath, 'utf8');
+    
+    // Configurar cabecera para HTML
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    
+    // Devolver el contenido
+    return res.status(200).send(content);
+  } catch (error) {
+    console.error('Error serving test page:', error);
+    return res.status(500).json({
+      error: 'Failed to serve test page',
+      details: error.message
+    });
+  }
+} 
