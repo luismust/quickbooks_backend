@@ -1,7 +1,6 @@
 // api/tests-image-debug.js - Versión simplificada para pruebas de imágenes
 const Airtable = require('airtable');
 const fetch = require('node-fetch');
-const FormData = require('form-data');
 
 // Configurar Airtable
 const getAirtableBase = () => {
@@ -55,34 +54,53 @@ async function saveImage(imageData) {
     console.log(`Campo: ${imageFieldName}`);
     
     try {
-      // Obtener credenciales
+      console.log('DEBUG - Implementando un nuevo enfoque basado en servicio de almacenamiento externo...');
+      
+      // 1. Para esta prueba, vamos a usar ImgBB como servicio externo para alojar la imagen
+      // ImgBB permite cargar imágenes directamente vía API
+      const imgbbKey = process.env.IMGBB_API_KEY || '54c2e395fb5d48a2074c5d4ae736f374'; // API key pública de prueba
+      
+      console.log('DEBUG - Subiendo imagen a servicio externo...');
+      
+      // Preparar la carga a ImgBB
+      const formData = new URLSearchParams();
+      formData.append('image', base64Content);
+      formData.append('name', fileName);
+      
+      // Enviar imagen a ImgBB
+      const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!imgbbResponse.ok) {
+        const errorText = await imgbbResponse.text();
+        console.error(`Error al subir a servicio externo: ${imgbbResponse.status} - ${errorText}`);
+        throw new Error(`Error al subir a servicio externo: ${imgbbResponse.status}`);
+      }
+      
+      const imgbbData = await imgbbResponse.json();
+      
+      if (!imgbbData.success || !imgbbData.data || !imgbbData.data.url) {
+        console.error('Respuesta inesperada del servicio de alojamiento de imágenes:', imgbbData);
+        throw new Error('No se pudo obtener la URL de la imagen alojada');
+      }
+      
+      // Obtener la URL de la imagen alojada
+      const imageUrl = imgbbData.data.url;
+      console.log(`DEBUG - Imagen subida correctamente a servicio externo: ${imageUrl}`);
+      
+      // 2. Ahora crear el registro en Airtable usando la URL externa, exactamente como en la documentación
       const baseId = process.env.AIRTABLE_BASE_ID;
       const apiKey = process.env.AIRTABLE_API_KEY;
       
-      // MÉTODO DIRECTO SEGÚN LA DOCUMENTACIÓN
-      console.log(`DEBUG - Método directo según documentación exacta...`);
+      console.log(`DEBUG - Creando registro en Airtable con imagen externa...`);
       
-      // 1. Convertir base64 a buffer para subirlo
-      const buffer = Buffer.from(base64Content, 'base64');
+      // URL para la API de Airtable
+      const airtableUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}`;
       
-      // 2. Preparar FormData con el archivo
-      const formData = new FormData();
-      formData.append('file', buffer, {
-        filename: fileName,
-        contentType: mimeType
-      });
-      
-      // 3. Crear URL exacta según la documentación 
-      const externalUrl = "https://www.filepicker.io/api/file/example"; // URL temporal que reemplazaremos
-      
-      // 4. Crear primero el registro con ID y una URL temporal
-      console.log(`DEBUG - Creando registro inicial en la tabla ${tableImages}...`);
-      
-      // URL para crear registros
-      const createUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}`;
-      
-      // Crear el registro con ID y URL temporal (siguiendo exactamente el formato del ejemplo)
-      const createResponse = await fetch(createUrl, {
+      // Crear la solicitud según la documentación
+      const airtableResponse = await fetch(airtableUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -92,10 +110,10 @@ async function saveImage(imageData) {
           records: [
             {
               fields: {
-                "ID": imageId,
+                ID: imageId,
                 [imageFieldName]: [
                   {
-                    url: externalUrl,
+                    url: imageUrl,
                     filename: fileName
                   }
                 ]
@@ -105,104 +123,31 @@ async function saveImage(imageData) {
         })
       });
       
-      if (!createResponse.ok) {
-        const errorText = await createResponse.text();
-        console.error(`Error al crear registro: ${createResponse.status} - ${errorText}`);
-        throw new Error(`Error al crear registro: ${createResponse.status} - ${errorText}`);
+      // Verificar respuesta
+      if (!airtableResponse.ok) {
+        const errorText = await airtableResponse.text();
+        console.error(`Error al crear registro en Airtable: ${airtableResponse.status} - ${errorText}`);
+        throw new Error(`Error al crear registro en Airtable: ${airtableResponse.status} - ${errorText}`);
       }
       
-      // Obtener resultados
-      const createResult = await createResponse.json();
-      console.log(`DEBUG - Registro creado correctamente:`, 
-        createResult.records && createResult.records.length > 0 ? 
-        'ID: ' + createResult.records[0].id : 'No hay registros');
+      const airtableData = await airtableResponse.json();
       
-      if (!createResult.records || !createResult.records[0] || !createResult.records[0].id) {
+      if (!airtableData.records || !airtableData.records[0] || !airtableData.records[0].id) {
+        console.error('Respuesta inesperada de Airtable:', airtableData);
         throw new Error('No se pudo crear el registro en Airtable');
       }
       
-      const recordId = createResult.records[0].id;
+      const recordId = airtableData.records[0].id;
+      console.log(`DEBUG - Registro creado correctamente con ID: ${recordId}`);
       
-      // 5. Ahora que tenemos el ID, subimos realmente la imagen 
-      // URL CORRECTA según la documentación para agregar archivos adjuntos a un registro
-      const attachmentUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/fields/${imageFieldName}`;
+      // 3. Verificar el registro para confirmar que tiene la imagen
+      console.log(`DEBUG - Verificando registro...`);
       
-      console.log(`DEBUG - Subiendo archivo a ${attachmentUrl}`);
-      
-      // Subir directamente la imagen al campo
-      const uploadResponse = await fetch(attachmentUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          records: [
-            {
-              id: recordId,
-              fields: {
-                [imageFieldName]: [
-                  {
-                    url: `data:${mimeType};base64,${base64Content}`,
-                    filename: fileName
-                  }
-                ]
-              }
-            }
-          ]
-        })
-      });
-      
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
-        
-        // Intento alternativo: Probar con la URL exacta que vemos en la documentación
-        console.log(`DEBUG - Intentando método alternativo para subir el archivo...`);
-        
-        // URL alternativa según la documentación 
-        const altAttachmentUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}`;
-        
-        const altUploadResponse = await fetch(altAttachmentUrl, {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            records: [
-              {
-                id: recordId,
-                fields: {
-                  [imageFieldName]: [
-                    {
-                      url: `data:${mimeType};base64,${base64Content}`,
-                      filename: fileName
-                    }
-                  ]
-                }
-              }
-            ]
-          })
-        });
-        
-        if (!altUploadResponse.ok) {
-          const altErrorText = await altUploadResponse.text();
-          console.error(`Error en método alternativo: ${altUploadResponse.status} - ${altErrorText}`);
-          throw new Error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
-        }
-        
-        console.log(`DEBUG - Método alternativo exitoso!`);
-      }
-      
-      // 6. Verificar que el registro ahora tenga la imagen
-      console.log(`DEBUG - Verificando registro actualizado...`);
-      
-      // Esperar un momento para que Airtable procese la imagen
+      // Esperar un momento para que Airtable procese todo
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      const verifyUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}`;
-      const verifyResponse = await fetch(verifyUrl, {
+      // Solicitar el registro
+      const verifyResponse = await fetch(`${airtableUrl}/${recordId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`
@@ -211,39 +156,44 @@ async function saveImage(imageData) {
       
       if (!verifyResponse.ok) {
         console.warn(`No se pudo verificar el registro: ${verifyResponse.status}`);
+        // Devolver información parcial
         return {
           success: true,
           id: recordId,
           imageId: imageId,
+          externalUrl: imageUrl,
           note: "Registro creado pero no se pudo verificar"
         };
       }
       
-      const verifyResult = await verifyResponse.json();
+      const verifyData = await verifyResponse.json();
       
-      if (verifyResult && 
-          verifyResult.fields && 
-          verifyResult.fields[imageFieldName] && 
-          verifyResult.fields[imageFieldName].length > 0) {
+      if (verifyData && 
+          verifyData.fields && 
+          verifyData.fields[imageFieldName] && 
+          verifyData.fields[imageFieldName].length > 0) {
         
-        const image = verifyResult.fields[imageFieldName][0];
+        const image = verifyData.fields[imageFieldName][0];
         
+        // Éxito completo
         return {
           success: true,
-          id: verifyResult.id,
+          id: verifyData.id,
           imageId: imageId,
-          url: image.url,
+          externalUrl: imageUrl,
+          airtableUrl: image.url,
           thumbnails: image.thumbnails || {},
           size: image.size,
           type: image.type
         };
       }
       
-      // Si llegamos aquí el registro existe pero sin imagen
+      // Si llegamos aquí, el registro está pero no tiene la imagen
       return {
         success: true,
         id: recordId,
         imageId: imageId,
+        externalUrl: imageUrl,
         note: "El registro se creó pero la imagen no se adjuntó correctamente"
       };
       
