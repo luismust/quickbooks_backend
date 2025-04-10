@@ -22,6 +22,7 @@
       }
     },
     { "src": "/api/debug", "dest": "/api/debug.js" },
+    { "src": "/api/debug-post", "dest": "/api/debug-post.js" },
     { "src": "/api/tests-simple", "dest": "/api/tests-simple.js" },
     { "src": "/api/tests", "dest": "/api/tests.js" },
     { "src": "/api/tests/(.*)", "dest": "/api/tests/[id].js?id=$1" }
@@ -42,6 +43,10 @@
     "api/debug.js": {
       "memory": 128,
       "maxDuration": 2
+    },
+    "api/debug-post.js": {
+      "memory": 128,
+      "maxDuration": 5
     }
   }
 }
