@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de Carga de Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .question {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #f9f9f9;
+        }
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin-top: 10px;
+        }
+        #response {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            background-color: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Prueba de Carga de Test</h1>
+    
+    <div class="form-group">
+        <label for="test-name">Nombre del Test:</label>
+        <input type="text" id="test-name" value="Test de Prueba">
+    </div>
+    
+    <div class="form-group">
+        <label for="test-description">Descripción:</label>
+        <textarea id="test-description">Descripción del test de prueba</textarea>
+    </div>
+    
+    <h2>Preguntas</h2>
+    <div id="questions-container">
+        <div class="question" data-id="q1">
+            <div class="form-group">
+                <label>ID de Pregunta: q1</label>
+            </div>
+            <div class="form-group">
+                <label>Texto de la Pregunta:</label>
+                <input type="text" class="question-text" value="¿Pregunta de ejemplo?">
+            </div>
+            <div class="form-group">
+                <label>Imagen (opcional):</label>
+                <input type="file" class="question-image" accept="image/*">
+                <div class="image-preview"></div>
+            </div>
+        </div>
+    </div>
+    
+    <button id="add-question">Añadir Pregunta</button>
+    
+    <div class="form-group" style="margin-top: 20px;">
+        <button id="submit-test">Enviar Test</button>
+    </div>
+    
+    <div id="response"></div>
+    
+    <script>
+        // Variables globales
+        const API_URL = 'https://quickbooks-backend.vercel.app/api/tests';
+        let nextQuestionId = 2;
+        
+        // Elementos DOM
+        const questionsContainer = document.getElementById('questions-container');
+        const addQuestionBtn = document.getElementById('add-question');
+        const submitTestBtn = document.getElementById('submit-test');
+        const responseDiv = document.getElementById('response');
+        
+        // Evento para añadir una nueva pregunta
+        addQuestionBtn.addEventListener('click', () => {
+            const questionId = `q${nextQuestionId++}`;
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'question';
+            questionDiv.dataset.id = questionId;
+            
+            questionDiv.innerHTML = `
+                <div class="form-group">
+                    <label>ID de Pregunta: ${questionId}</label>
+                </div>
+                <div class="form-group">
+                    <label>Texto de la Pregunta:</label>
+                    <input type="text" class="question-text" value="¿Pregunta ${questionId}?">
+                </div>
+                <div class="form-group">
+                    <label>Imagen (opcional):</label>
+                    <input type="file" class="question-image" accept="image/*">
+                    <div class="image-preview"></div>
+                </div>
+            `;
+            
+            questionsContainer.appendChild(questionDiv);
+            
+            // Añadir evento para previsualizar la imagen
+            const imageInput = questionDiv.querySelector('.question-image');
+            const imagePreview = questionDiv.querySelector('.image-preview');
+            
+            imageInput.addEventListener('change', function(e) {
+                handleImagePreview(this, imagePreview);
+            });
+        });
+        
+        // Añadir manejadores de eventos para la primera pregunta
+        document.querySelector('.question-image').addEventListener('change', function(e) {
+            const imagePreview = this.parentNode.querySelector('.image-preview');
+            handleImagePreview(this, imagePreview);
+        });
+        
+        // Función para manejar la previsualización de imágenes
+        function handleImagePreview(input, previewElement) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.className = 'image-preview';
+                    
+                    previewElement.innerHTML = '';
+                    previewElement.appendChild(img);
+                };
+                
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+        
+        // Evento para enviar el test
+        submitTestBtn.addEventListener('click', async () => {
+            try {
+                // Deshabilitar botón durante el envío
+                submitTestBtn.disabled = true;
+                submitTestBtn.textContent = 'Enviando...';
+                
+                // Recopilar datos del test
+                const testName = document.getElementById('test-name').value;
+                const testDescription = document.getElementById('test-description').value;
+                
+                if (!testName) {
+                    throw new Error('El nombre del test es obligatorio');
+                }
+                
+                // Recopilar preguntas
+                const questionElements = document.querySelectorAll('.question');
+                const questions = [];
+                
+                for (const el of questionElements) {
+                    const questionId = el.dataset.id;
+                    const questionText = el.querySelector('.question-text').value;
+                    const imageInput = el.querySelector('.question-image');
+                    
+                    if (!questionText) {
+                        throw new Error(`La pregunta ${questionId} debe tener un texto`);
+                    }
+                    
+                    const question = {
+                        id: questionId,
+                        text: questionText,
+                        options: [
+                            { id: `${questionId}_o1`, text: 'Opción 1' },
+                            { id: `${questionId}_o2`, text: 'Opción 2' }
+                        ]
+                    };
+                    
+                    // Procesar imagen si existe
+                    if (imageInput.files && imageInput.files[0]) {
+                        const reader = new FileReader();
+                        const imagePromise = new Promise((resolve) => {
+                            reader.onload = function(e) {
+                                question.image = e.target.result; // data:image/...
+                                resolve();
+                            };
+                        });
+                        
+                        reader.readAsDataURL(imageInput.files[0]);
+                        await imagePromise;
+                    }
+                    
+                    questions.push(question);
+                }
+                
+                // Crear objeto de test
+                const testData = {
+                    name: testName,
+                    description: testDescription,
+                    questions: questions,
+                    maxScore: 100,
+                    minScore: 60,
+                    passingMessage: '¡Felicidades, has aprobado!',
+                    failingMessage: 'No has alcanzado la puntuación mínima. Inténtalo de nuevo.'
+                };
+                
+                // Enviar al API
+                console.log('Enviando datos:', testData);
+                
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testData),
+                    credentials: 'include'
+                });
+                
+                const result = await response.json();
+                
+                // Mostrar respuesta
+                responseDiv.style.display = 'block';
+                
+                if (response.ok) {
+                    responseDiv.innerHTML = `<div class="success">Test guardado correctamente!</div>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                } else {
+                    responseDiv.innerHTML = `<div class="error">Error al guardar el test</div>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                responseDiv.style.display = 'block';
+                responseDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+                console.error('Error:', error);
+            } finally {
+                // Restaurar botón
+                submitTestBtn.disabled = false;
+                submitTestBtn.textContent = 'Enviar Test';
+            }
+        });
+    </script>
+</body>
+</html> 

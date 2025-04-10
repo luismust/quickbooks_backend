@@ -40,8 +40,25 @@ async function handleGet(req, res) {
     const base = getAirtableBase();
     const tableName = process.env.AIRTABLE_TABLE_NAME || 'Tests';
     
-    const records = await base(tableName).select().all();
+    // Opcionalmente, obtener un test específico por ID
+    const { id } = req.query;
+    let records;
     
+    if (id) {
+      // Buscar un test específico por ID
+      try {
+        const record = await base(tableName).find(id);
+        records = [record];
+      } catch (findError) {
+        console.error(`Error finding test with ID ${id}:`, findError);
+        return res.status(404).json({ error: `Test with ID ${id} not found` });
+      }
+    } else {
+      // Obtener todos los tests
+      records = await base(tableName).select().all();
+    }
+    
+    // Transformar registros a formato amigable para el frontend
     const tests = records.map(record => {
       const fields = record.fields;
       
@@ -49,6 +66,27 @@ async function handleGet(req, res) {
       let questions = [];
       try {
         questions = JSON.parse(fields[FIELDS.QUESTIONS] || '[]');
+        
+        // Transformar referencias de imágenes a URLs accesibles
+        questions = questions.map(question => {
+          const processedQuestion = { ...question };
+          
+          // Si hay una imagen, convertirla en una URL accesible mediante nuestro endpoint
+          if (question.image) {
+            // Si ya es una URL completa de http, dejarla como está
+            if (question.image.startsWith('http')) {
+              processedQuestion.image = question.image;
+            } 
+            // Si tenemos un ID de imagen, crear una URL a nuestro endpoint
+            else if (question.imageId) {
+              const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
+              processedQuestion.image = `${apiUrl}/api/images?id=${question.imageId}`;
+            } 
+            // Si es null u otro valor, mantenerlo
+          }
+          
+          return processedQuestion;
+        });
       } catch (error) {
         console.error('Error parsing questions:', error);
       }
@@ -62,8 +100,14 @@ async function handleGet(req, res) {
         minScore: fields[FIELDS.MIN_SCORE],
         passingMessage: fields[FIELDS.PASSING_MESSAGE],
         failingMessage: fields[FIELDS.FAILING_MESSAGE],
+        createdAt: fields[FIELDS.CREATED_AT],
       };
     });
+    
+    // Si se solicitó un ID específico, devolver solo ese test
+    if (id) {
+      return res.status(200).json(tests[0] || null);
+    }
     
     return res.status(200).json({ tests });
   } catch (error) {
@@ -84,12 +128,36 @@ async function handlePost(req, res) {
       return res.status(405).json({ error: 'Method not allowed' });
     }
     
-    const test = req.body;
+    let test = req.body;
+    
+    // Si el body es string, intentar parsearlo como JSON
+    if (typeof test === 'string') {
+      try {
+        test = JSON.parse(test);
+      } catch (parseError) {
+        console.error('Error parsing request body:', parseError);
+        return res.status(400).json({ 
+          error: 'Invalid JSON in request body',
+          details: parseError.message
+        });
+      }
+    }
+    
     console.log('Received test data:', {
       id: test.id,
       name: test.name,
       questionsCount: test.questions ? test.questions.length : 0
     });
+    
+    // Verificar que tenemos las variables de entorno necesarias
+    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID || !process.env.AIRTABLE_TABLE_NAME) {
+      console.error('Missing environment variables:', {
+        hasApiKey: Boolean(process.env.AIRTABLE_API_KEY),
+        hasBaseId: Boolean(process.env.AIRTABLE_BASE_ID),
+        hasTableName: Boolean(process.env.AIRTABLE_TABLE_NAME)
+      });
+      return res.status(500).json({ error: 'Server configuration error - missing Airtable credentials' });
+    }
     
     const base = getAirtableBase();
     const tableName = process.env.AIRTABLE_TABLE_NAME;
@@ -128,21 +196,21 @@ async function handlePost(req, res) {
             const imageId = q.id || generateUniqueId();
             
             // Guardar la referencia en la pregunta
-            simplifiedQuestion.image = `image_reference_${imageId}`;
+            simplifiedQuestion.imageId = imageId; // Guardar el ID para referencias futuras
+            simplifiedQuestion.image = null; // Vaciar el campo de imagen para no almacenar datos grandes
             
-            // Añadir a la lista para procesar después (no usar promesas directamente)
+            // Añadir a la lista para procesar después
             imagesToProcess.push({
               questionId: q.id,
               imageId: imageId,
               imageData: q.image
             });
-            
-            delete simplifiedQuestion._imageData;
           }
           else if (q.image.startsWith('blob:')) {
             if (q._imageData) {
               const imageId = q.id || generateUniqueId();
-              simplifiedQuestion.image = `image_reference_${imageId}`;
+              simplifiedQuestion.imageId = imageId;
+              simplifiedQuestion.image = null;
               
               // Añadir a la lista para procesar después
               imagesToProcess.push({
@@ -150,24 +218,28 @@ async function handlePost(req, res) {
                 imageId: imageId,
                 imageData: q._imageData
               });
-              
-              delete simplifiedQuestion._imageData;
             } else {
-              console.warn(`Question ${q.id} has blob URL but no _imageData, using placeholder reference`);
-              simplifiedQuestion.image = `image_reference_${q.id}`;
+              console.warn(`Question ${q.id} has blob URL but no _imageData, skipping image`);
+              simplifiedQuestion.image = null;
             }
+          } else if (q.image.startsWith('http')) {
+            // Ya es una URL, mantenerla como está
+            simplifiedQuestion.image = q.image;
+          } else {
+            // No es un formato reconocido
+            console.warn(`Question ${q.id} has unrecognized image format: ${q.image.substring(0, 20)}...`);
+            simplifiedQuestion.image = null;
           }
         } catch (imgError) {
           console.error(`Error processing image for question ${q.id}:`, imgError);
-          // Si hay error, simplemente guardar una referencia
-          simplifiedQuestion.image = `image_reference_error`;
+          simplifiedQuestion.image = null;
         }
       }
       
       return simplifiedQuestion;
     });
     
-    // Guardar primero el test en Airtable para no bloquearnos con imágenes
+    // Guardar primero el test en Airtable
     console.log('Saving test data to Airtable');
     const recordData = {
       fields: {
@@ -177,23 +249,34 @@ async function handlePost(req, res) {
         [FIELDS.MAX_SCORE]: testToSave.maxScore,
         [FIELDS.MIN_SCORE]: testToSave.minScore,
         [FIELDS.PASSING_MESSAGE]: testToSave.passingMessage,
-        [FIELDS.FAILING_MESSAGE]: testToSave.failingMessage
+        [FIELDS.FAILING_MESSAGE]: testToSave.failingMessage,
+        [FIELDS.CREATED_AT]: new Date().toISOString()
       }
     };
     
     // Crear registro en Airtable - esta es la operación crítica
     console.log('Creating Airtable record...');
-    const records = await base(tableName).create([recordData]);
-    
-    if (!records || records.length === 0) {
-      console.error('No records returned from Airtable create operation');
+    let createdRecord;
+    try {
+      const records = await base(tableName).create([recordData]);
+      
+      if (!records || records.length === 0) {
+        console.error('No records returned from Airtable create operation');
+        return res.status(500).json({ 
+          error: 'Failed to save test',
+          details: 'No records returned from Airtable'
+        });
+      }
+      
+      createdRecord = records[0];
+    } catch (airtableError) {
+      console.error('Airtable create error:', airtableError);
       return res.status(500).json({ 
-        error: 'Failed to save test',
-        details: 'No records returned from Airtable'
+        error: 'Failed to save test in Airtable',
+        details: airtableError.message || 'Unknown Airtable error'
       });
     }
     
-    const createdRecord = records[0];
     const testId = createdRecord.id;
     
     if (!testId) {
@@ -209,7 +292,8 @@ async function handlePost(req, res) {
     // Preparar respuesta con el ID generado
     const responseData = {
       ...testToSave,
-      id: testId
+      id: testId,
+      questions: simplifiedQuestions // Usar las preguntas simplificadas en la respuesta
     };
     
     // Intentar procesar imágenes en segundo plano, pero no bloquear la respuesta
@@ -219,14 +303,55 @@ async function handlePost(req, res) {
       // Esto se ejecutará en segundo plano y no bloqueará la respuesta
       (async () => {
         try {
+          const imageResults = [];
           for (const img of imagesToProcess) {
             try {
-              await saveImageToAirtable(base, img.imageId, img.imageData);
+              const imageUrl = await saveImageToAirtable(base, img.imageId, img.imageData);
+              if (imageUrl) {
+                imageResults.push({
+                  questionId: img.questionId,
+                  imageId: img.imageId,
+                  url: imageUrl
+                });
+              }
             } catch (imgError) {
               console.error(`Failed to save image ${img.imageId}:`, imgError);
               // Continuar con la siguiente imagen
             }
           }
+          
+          // Si tenemos resultados de imágenes, actualizar el test con sus URLs
+          if (imageResults.length > 0) {
+            console.log(`Successfully processed ${imageResults.length} images, updating test record...`);
+            try {
+              // Obtener el test recién creado
+              const testRecord = await base(tableName).find(testId);
+              const updatedQuestions = JSON.parse(testRecord.fields[FIELDS.QUESTIONS] || '[]');
+              
+              // Actualizar las URLs de las imágenes
+              updatedQuestions.forEach(q => {
+                const imageResult = imageResults.find(img => img.questionId === q.id || img.imageId === q.imageId);
+                if (imageResult) {
+                  q.image = imageResult.url;
+                }
+              });
+              
+              // Guardar las preguntas actualizadas
+              await base(tableName).update(testId, {
+                fields: {
+                  [FIELDS.QUESTIONS]: JSON.stringify(updatedQuestions),
+                  [FIELDS.IMAGES]: 'processed'
+                }
+              });
+              
+              console.log('Test record updated with image URLs');
+            } catch (updateError) {
+              console.error('Failed to update test with image URLs:', updateError);
+            }
+          } else {
+            console.warn('No images were successfully processed');
+          }
+          
           console.log('Background image processing completed');
         } catch (bgError) {
           console.error('Error in background image processing:', bgError);
@@ -260,10 +385,9 @@ async function saveImageToAirtable(base, imageId, imageData) {
       return '';
     }
 
-    const tableImages = process.env.AIRTABLE_TABLE_IMAGES;
+    const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
     const baseId = process.env.AIRTABLE_BASE_ID;
     const apiKey = process.env.AIRTABLE_API_KEY;
-    
     
     // Extraer información de la imagen base64
     let fileName, mimeType, base64Content;
@@ -295,9 +419,6 @@ async function saveImageToAirtable(base, imageId, imageData) {
       return '';
     }
     
-    // Convertir base64 a Buffer
-    const buffer = Buffer.from(base64Content, 'base64');
-    
     try {
       // Verificar si ya existe esta imagen en la tabla
       const existingRecords = await base(tableImages)
@@ -307,47 +428,50 @@ async function saveImageToAirtable(base, imageId, imageData) {
         })
         .all();
       
-      // URL para subir directamente el archivo a Airtable
-      const url = `https://api.airtable.com/v0/${baseId}/${tableImages}`;
-      
-      // Configurar la solicitud para subir el archivo
+      // MÉTODO CORRECTO: Usar create con el formato adecuado para attachments
       const recordId = existingRecords.length > 0 ? existingRecords[0].id : null;
-      const method = recordId ? 'PATCH' : 'POST';
-      const specificUrl = recordId ? `${url}/${recordId}` : url;
       
-      // Realizar la solicitud a la API de Airtable con un timeout
-      const response = await axios({
-        method: method,
-        url: specificUrl,
-        data: {
-          fields: {
-            ID: imageId,
-            Image: [
-              {
-                filename: fileName,
-                type: mimeType,
-                content: base64Content
-              }
-            ]
-          }
-        },
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 5000 // 5 segundos máximo
-      });
+      // Convertir base64 a un formato adecuado para Airtable
+      // Nota: Airtable espera un objeto con filename, type y url (o content para POST)
+      const recordData = {
+        fields: {
+          ID: imageId,
+          Image: [
+            {
+              filename: fileName,
+              content_type: mimeType,
+              content: base64Content
+            }
+          ]
+        }
+      };
       
-      // Obtener la URL de la imagen subida
-      let attachmentUrl = '';
-      if (response.data && response.data.fields && response.data.fields.Image) {
-        attachmentUrl = response.data.fields.Image[0].url;
+      let response;
+      if (recordId) {
+        // Actualizar registro existente
+        response = await base(tableImages).update(recordId, recordData);
+      } else {
+        // Crear nuevo registro
+        const records = await base(tableImages).create([recordData]);
+        response = records[0];
       }
       
-      console.log(`${recordId ? 'Updated' : 'Created'} image with ID: ${imageId}`);
+      // Obtener la URL de la imagen subida desde el registro actualizado
+      let attachmentUrl = '';
+      if (response && response.fields && response.fields.Image && 
+          response.fields.Image[0] && response.fields.Image[0].url) {
+        attachmentUrl = response.fields.Image[0].url;
+        console.log(`Successfully saved image with ID: ${imageId}, URL: ${attachmentUrl.substring(0, 50)}...`);
+      } else {
+        console.warn('Image uploaded but URL not returned:', response);
+      }
+      
       return attachmentUrl;
     } catch (uploadError) {
       console.error(`Failed to upload image ${imageId}:`, uploadError.message);
+      if (uploadError.response) {
+        console.error('Error response:', JSON.stringify(uploadError.response.data || {}).substring(0, 200));
+      }
       // No propagar el error, simplemente devolver URL vacía
       return '';
     }
