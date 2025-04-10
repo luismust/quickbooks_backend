@@ -29,7 +29,8 @@
     { "src": "/api/airtable-check", "dest": "/api/airtable-check.js" },
     { "src": "/api/tests", "dest": "/api/tests.js" },
     { "src": "/api/tests/(.*)", "dest": "/api/tests.js?id=$1" },
-    { "src": "/api/images", "dest": "/api/images.js" }
+    { "src": "/api/images", "dest": "/api/images.js" },
+    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" }
   ],
   "functions": {
     "api/tests.js": {
@@ -59,6 +60,10 @@
     "api/airtable-check.js": {
       "memory": 512,
       "maxDuration": 5
+    },
+    "api/tests-image-debug.js": {
+      "memory": 1024,
+      "maxDuration": 10
     }
   }
 }
