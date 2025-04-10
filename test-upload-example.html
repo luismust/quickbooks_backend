@@ -244,17 +244,33 @@
                     credentials: 'include'
                 });
                 
-                const result = await response.json();
-                
                 // Mostrar respuesta
                 responseDiv.style.display = 'block';
                 
                 if (response.ok) {
-                    responseDiv.innerHTML = `<div class="success">Test guardado correctamente!</div>
-                        <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                    try {
+                        const result = await response.json();
+                        responseDiv.innerHTML = `<div class="success">Test guardado correctamente!</div>
+                            <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                    } catch (jsonError) {
+                        // Si hay un error al parsear el JSON
+                        const text = await response.text();
+                        responseDiv.innerHTML = `<div class="error">Test guardado, pero respuesta no es JSON válido</div>
+                            <pre>${text}</pre>`;
+                    }
                 } else {
-                    responseDiv.innerHTML = `<div class="error">Error al guardar el test</div>
-                        <pre>${JSON.stringify(result, null, 2)}</pre>`;
+                    // Intentar obtener el texto del error
+                    let errorText;
+                    try {
+                        const errorJson = await response.json();
+                        errorText = JSON.stringify(errorJson, null, 2);
+                    } catch (jsonError) {
+                        // Si el error no es JSON, mostrar el texto completo
+                        errorText = await response.text();
+                    }
+                    
+                    responseDiv.innerHTML = `<div class="error">Error al guardar el test (${response.status})</div>
+                        <pre>${errorText}</pre>`;
                 }
             } catch (error) {
                 responseDiv.style.display = 'block';
