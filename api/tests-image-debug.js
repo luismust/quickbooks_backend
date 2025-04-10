@@ -166,82 +166,153 @@ async function saveImage(imageData) {
       
       console.log(`DEBUG - URL externa obtenida: ${imageUrl}`);
       
-      // 2. Ahora crear el registro en Airtable con la URL externa
-      console.log('DEBUG - Creando registro en Airtable con URL externa...');
-      const base = getAirtableBase();
+      // 2. Ahora crear el registro en Airtable
+      console.log('DEBUG - Creando registro en Airtable...');
       
-      // Formato correcto para los attachments según la documentación de Airtable
-      return new Promise((resolve, reject) => {
-        base(tableImages).create([
+      // Primero, verificar que estamos usando el formato correcto según documentación
+      const apiKey = process.env.AIRTABLE_API_KEY;
+      const baseId = process.env.AIRTABLE_BASE_ID;
+      
+      // Usar fetch directamente para mayor control
+      const createUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}`;
+      
+      console.log(`DEBUG - Usando URL de API: ${createUrl}`);
+      console.log(`DEBUG - Campo de imagen: ${imageFieldName}`);
+      
+      // Estructura exacta según documentación
+      const recordData = {
+        records: [
           {
             fields: {
               ID: imageId,
               [imageFieldName]: [
                 {
-                  url: imageUrl,
-                  filename: fileName
+                  url: imageUrl
                 }
               ]
             }
           }
-        ], function(err, records) {
-          if (err) {
-            console.error('ERROR al crear registro en Airtable:', err);
-            return reject(err);
-          }
-          
-          if (!records || records.length === 0) {
-            return reject(new Error('No se recibieron registros en la respuesta'));
-          }
-          
-          const record = records[0];
-          console.log(`DEBUG - Registro creado con ID:`, record.id);
-          
-          // Verificar que el registro se creó correctamente
-          setTimeout(() => {
-            base(tableImages).find(record.id, function(err, retrievedRecord) {
-              if (err) {
-                console.warn('ERROR al verificar el registro:', err);
-                // Si hay error al verificar, al menos devolvemos el ID
-                return resolve({
-                  success: true,
-                  id: record.id,
-                  imageId: imageId,
-                  externalUrl: imageUrl,
-                  note: 'Registro creado pero no se pudo verificar'
-                });
-              }
-              
-              // Verificar si tiene el campo de imagen
-              if (retrievedRecord.fields && 
-                  retrievedRecord.fields[imageFieldName] && 
-                  retrievedRecord.fields[imageFieldName].length > 0) {
-                
-                const image = retrievedRecord.fields[imageFieldName][0];
-                return resolve({
-                  success: true,
-                  id: retrievedRecord.id,
-                  imageId: imageId,
-                  externalUrl: imageUrl,
-                  airtableUrl: image.url,
-                  thumbnails: image.thumbnails || {},
-                  size: image.size,
-                  type: image.type
-                });
-              }
-              
-              // No se encontró la imagen en el registro
-              return resolve({
-                success: true,
-                id: record.id,
-                imageId: imageId,
-                externalUrl: imageUrl,
-                note: 'El registro se creó pero la imagen no se procesó correctamente'
-              });
-            });
-          }, 2000); // Esperar 2 segundos para que Airtable procese la imagen
-        });
+        ]
+      };
+      
+      console.log('DEBUG - Estructura de datos:', JSON.stringify(recordData, null, 2));
+      
+      const response = await fetch(createUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(recordData)
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`ERROR al crear registro: ${response.status} - ${errorText}`);
+        throw new Error(`Error al crear registro en Airtable: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.records || !result.records[0]) {
+        throw new Error('Respuesta de Airtable no contiene registros');
+      }
+      
+      const record = result.records[0];
+      
+      console.log(`DEBUG - Registro creado con ID: ${record.id}`);
+      console.log('DEBUG - Datos del registro:', JSON.stringify(record, null, 2));
+      
+      // 3. Verificar el registro creado después de un tiempo para dejar que Airtable procese
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      console.log('DEBUG - Verificando registro...');
+      
+      const verifyResponse = await fetch(`${createUrl}/${record.id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+      
+      if (!verifyResponse.ok) {
+        console.warn(`ERROR al verificar: ${verifyResponse.status}`);
+        // Al menos devolvemos el ID del registro creado
+        return {
+          success: true,
+          id: record.id,
+          imageId: imageId,
+          externalUrl: imageUrl,
+          note: 'Registro creado pero no se pudo verificar'
+        };
+      }
+      
+      const verifyData = await verifyResponse.json();
+      
+      // Extraer información del attachment si existe
+      let attachmentInfo = null;
+      
+      if (verifyData.fields && 
+          verifyData.fields[imageFieldName] && 
+          verifyData.fields[imageFieldName].length > 0) {
+        
+        attachmentInfo = verifyData.fields[imageFieldName][0];
+        console.log('DEBUG - Información del attachment:', JSON.stringify(attachmentInfo, null, 2));
+        
+        // Verificar si Airtable ha procesado completamente el attachment
+        if (attachmentInfo.url && 
+            attachmentInfo.size !== undefined && 
+            attachmentInfo.type !== undefined) {
+          
+          return {
+            success: true,
+            id: record.id,
+            imageId: imageId,
+            externalUrl: imageUrl,
+            airtableUrl: attachmentInfo.url,
+            thumbnails: attachmentInfo.thumbnails || {},
+            size: attachmentInfo.size,
+            type: attachmentInfo.type,
+            processingComplete: true
+          };
+        }
+      }
+      
+      // Si llegamos aquí, el attachment no está completamente procesado
+      // Intentar actualizar el registro para "forzar" el procesamiento
+      console.log('DEBUG - La imagen no se procesó completamente, intentando actualizar...');
+      
+      const updateResponse = await fetch(`${createUrl}/${record.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          fields: {
+            [imageFieldName]: [
+              {
+                url: imageUrl
+              }
+            ]
+          }
+        })
+      });
+      
+      if (!updateResponse.ok) {
+        console.warn(`ERROR al actualizar: ${updateResponse.status}`);
+      } else {
+        console.log('DEBUG - Registro actualizado');
+      }
+      
+      // Devolver lo que tengamos hasta ahora
+      return {
+        success: true,
+        id: record.id,
+        imageId: imageId,
+        externalUrl: imageUrl,
+        note: 'El registro se creó pero es posible que Airtable necesite tiempo para procesar la imagen completamente',
+        attachmentInfo: attachmentInfo || {}
+      };
       
     } catch (airtableError) {
       console.error("Error al interactuar con Airtable:", airtableError);
