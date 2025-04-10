@@ -502,13 +502,20 @@ async function saveImageToAirtable(base, imageId, imageData) {
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
   // Para todas las solicitudes, establecer cabeceras CORS
+  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version'
   );
+  
+  // Responder inmediatamente a las solicitudes OPTIONS
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
   
   try {
     // Parse JSON body for POST requests

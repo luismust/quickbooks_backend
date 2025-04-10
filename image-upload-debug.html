@@ -223,6 +223,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
+                    credentials: 'include', // Incluir credenciales
                     body: JSON.stringify({
                         name: 'Test de imagen ' + new Date().toISOString(),
                         description: 'Prueba de carga de imagen',

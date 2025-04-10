@@ -2,9 +2,11 @@
 const Airtable = require('airtable');
 
 module.exports = async (req, res) => {
-  // Configurar cabeceras CORS
+  // Configurar CORS
+  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   

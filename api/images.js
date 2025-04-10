@@ -21,8 +21,10 @@ const getAirtableBase = () => {
 // Manejador para el endpoint de imágenes
 module.exports = async (req, res) => {
   // Establecer cabeceras CORS
+  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*'); // Permitimos cualquier origen para imágenes
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   

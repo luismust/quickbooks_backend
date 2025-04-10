@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de CORS con credenciales</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        pre {
+            background-color: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            overflow: auto;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Prueba de CORS con credenciales</h1>
+    
+    <div>
+        <h2>Opciones:</h2>
+        <label>
+            <input type="checkbox" id="include-credentials" checked> 
+            Incluir credenciales (credentials: 'include')
+        </label>
+    </div>
+    
+    <div>
+        <h2>Endpoints:</h2>
+        <button id="test-get">GET /api/tests</button>
+        <button id="test-post">POST /api/tests</button>
+        <button id="test-images">GET /api/images</button>
+    </div>
+    
+    <h2>Resultado:</h2>
+    <div id="result">
+        <p>El resultado aparecerá aquí...</p>
+    </div>
+    
+    <script>
+        // Elementos DOM
+        const includeCredentialsCheckbox = document.getElementById('include-credentials');
+        const testGetButton = document.getElementById('test-get');
+        const testPostButton = document.getElementById('test-post');
+        const testImagesButton = document.getElementById('test-images');
+        const resultDiv = document.getElementById('result');
+        
+        // URL base de la API
+        const apiBaseUrl = 'https://quickbooks-backend.vercel.app';
+        
+        // Función para mostrar el resultado
+        function showResult(data, success = true) {
+            if (success) {
+                resultDiv.innerHTML = `
+                    <p class="success">¡Petición exitosa!</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <p class="error">Error: ${data.message || 'Desconocido'}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            }
+        }
+        
+        // Función para realizar la petición fetch
+        async function fetchApi(url, method = 'GET', body = null) {
+            try {
+                resultDiv.innerHTML = '<p>Enviando petición...</p>';
+                
+                // Configurar opciones de fetch
+                const options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+                
+                // Añadir credenciales si está marcado
+                if (includeCredentialsCheckbox.checked) {
+                    options.credentials = 'include';
+                }
+                
+                // Añadir body para POST
+                if (body && method === 'POST') {
+                    options.body = JSON.stringify(body);
+                }
+                
+                // Mostrar la configuración usada
+                console.log('Fetch options:', options);
+                
+                // Realizar la petición
+                const response = await fetch(url, options);
+                
+                // Procesar la respuesta
+                if (response.ok) {
+                    const data = await response.json();
+                    showResult(data);
+                } else {
+                    const errorData = await response.json().catch(() => ({
+                        status: response.status,
+                        statusText: response.statusText
+                    }));
+                    
+                    showResult({
+                        status: response.status,
+                        statusText: response.statusText,
+                        error: errorData,
+                        message: `Error ${response.status}: ${response.statusText}`
+                    }, false);
+                }
+            } catch (error) {
+                showResult({
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                }, false);
+            }
+        }
+        
+        // Evento para GET /api/tests
+        testGetButton.addEventListener('click', () => {
+            fetchApi(`${apiBaseUrl}/api/tests`);
+        });
+        
+        // Evento para POST /api/tests
+        testPostButton.addEventListener('click', () => {
+            const testData = {
+                name: 'Test de CORS ' + new Date().toISOString(),
+                description: 'Prueba de CORS con credenciales',
+                questions: [
+                    {
+                        id: 'q1',
+                        text: 'Esta es una pregunta de prueba',
+                        options: [
+                            { id: 'a', text: 'Opción A' },
+                            { id: 'b', text: 'Opción B' }
+                        ],
+                        correctAnswer: 'a'
+                    }
+                ]
+            };
+            
+            fetchApi(`${apiBaseUrl}/api/tests`, 'POST', testData);
+        });
+        
+        // Evento para GET /api/images
+        testImagesButton.addEventListener('click', () => {
+            // Como no tenemos un ID de imagen, solo mostraremos el error 400 esperado
+            fetchApi(`${apiBaseUrl}/api/images`);
+        });
+    </script>
+</body>
+</html> 

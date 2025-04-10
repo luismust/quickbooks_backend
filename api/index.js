@@ -8,8 +8,10 @@ module.exports = async (req, res) => {
   console.log('API Root accessed');
   
   // Configurar CORS
+  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
