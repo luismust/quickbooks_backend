@@ -43,11 +43,26 @@ async function saveImage(imageData) {
     const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
     const base = getAirtableBase();
     
-    // Crear registro con la imagen - FORMATO CORREGIDO
-    // Airtable espera un objeto sin la propiedad "content_type" y "content"
-    // La documentación indica que el objeto de attachment debe tener: url, filename, size, type, etc.
-    // Como no tenemos URL, usamos el API de Airtable para crear un archivo vacío primero
-    // y luego actualizarlo manualmente
+    console.log(`Usando tabla de imágenes: ${tableImages}`);
+    
+    // Verificar si la tabla existe intentando obtener un registro
+    console.log(`Verificando si la tabla ${tableImages} existe...`);
+    try {
+      await base(tableImages).select({ maxRecords: 1 }).firstPage();
+      console.log(`Tabla ${tableImages} encontrada correctamente`);
+    } catch (tableError) {
+      console.error(`Error al acceder a la tabla ${tableImages}:`, tableError.message);
+      return { 
+        success: false, 
+        error: `No se pudo acceder a la tabla ${tableImages}`, 
+        details: tableError.message,
+        airtableConfig: {
+          hasApiKey: Boolean(process.env.AIRTABLE_API_KEY),
+          hasBaseId: Boolean(process.env.AIRTABLE_BASE_ID),
+          tableImages: tableImages
+        }
+      };
+    }
     
     // Paso 1: Crear un registro con solo el ID
     console.log(`Paso 1: Creando registro para imagen ID: ${imageId}`);
@@ -82,8 +97,13 @@ async function saveImage(imageData) {
     // URL del endpoint para subir archivos a Airtable
     const apiKey = process.env.AIRTABLE_API_KEY;
     const baseId = process.env.AIRTABLE_BASE_ID;
-    const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/Image`;
     
+    // Campo para la imagen en Airtable, debe coincidir exactamente con el nombre en la interfaz
+    const imageFieldName = 'Image'; // Asegúrate de que coincida exactamente con el nombre en Airtable, respetando mayúsculas/minúsculas
+    
+    const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/${imageFieldName}`;
+    
+    console.log(`Intentando subir imagen a URL: ${uploadUrl}`);
     // Realizar la solicitud para subir el archivo
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
@@ -97,10 +117,13 @@ async function saveImage(imageData) {
     // Verificar respuesta
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
+      console.error(`Error al subir imagen: ${uploadResponse.status}`, errorText);
       return { 
         success: false, 
         error: `Error al subir imagen: ${uploadResponse.status}`,
-        details: errorText
+        details: errorText,
+        uploadUrl: uploadUrl,
+        fieldName: imageFieldName
       };
     }
     
@@ -108,28 +131,46 @@ async function saveImage(imageData) {
     console.log(`Paso 3: Imagen subida, obteniendo información del registro actualizado`);
     
     // Paso 3: Obtener el registro actualizado para verificar la URL
+    console.log(`Paso 3: Obteniendo registro actualizado con ID: ${recordId}`);
     const updatedRecord = await base(tableImages).find(recordId);
     
+    console.log(`Campos disponibles en el registro: ${Object.keys(updatedRecord.fields).join(', ')}`);
+    
     // Verificar si se guardó la imagen
-    if (!updatedRecord.fields.Image || 
-        !updatedRecord.fields.Image[0] || 
-        !updatedRecord.fields.Image[0].url) {
+    if (!updatedRecord.fields[imageFieldName]) {
+      console.error(`Campo '${imageFieldName}' no encontrado en el registro. Campos disponibles:`, Object.keys(updatedRecord.fields));
       return { 
         success: false, 
-        error: 'Imagen subida pero no se encontró URL',
-        record: JSON.stringify(updatedRecord)
+        error: `Campo '${imageFieldName}' no encontrado en el registro`,
+        record: JSON.stringify(updatedRecord.fields),
+        availableFields: Object.keys(updatedRecord.fields)
       };
     }
+    
+    if (!updatedRecord.fields[imageFieldName] || 
+        !updatedRecord.fields[imageFieldName][0] || 
+        !updatedRecord.fields[imageFieldName][0].url) {
+      console.error(`Imagen subida pero no se encontró URL en el campo ${imageFieldName}`, updatedRecord.fields);
+      return { 
+        success: false, 
+        error: `Imagen subida pero no se encontró URL en el campo ${imageFieldName}`,
+        record: JSON.stringify(updatedRecord.fields)
+      };
+    }
+    
+    const imageAttachment = updatedRecord.fields[imageFieldName][0];
+    console.log(`Imagen subida exitosamente. URL: ${imageAttachment.url.substring(0, 50)}...`);
     
     // Éxito - devolver información
     return {
       success: true,
       imageId: imageId,
-      url: updatedRecord.fields.Image[0].url,
+      url: imageAttachment.url,
       recordId: recordId,
-      thumbnails: updatedRecord.fields.Image[0].thumbnails || {},
-      size: updatedRecord.fields.Image[0].size,
-      type: updatedRecord.fields.Image[0].type
+      thumbnails: imageAttachment.thumbnails || {},
+      size: imageAttachment.size,
+      type: imageAttachment.type,
+      allFields: Object.keys(updatedRecord.fields)
     };
   } catch (error) {
     console.error('Error al guardar imagen:', error);
