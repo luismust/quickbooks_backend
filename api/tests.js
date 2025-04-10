@@ -184,8 +184,25 @@ async function handlePost(req, res) {
     // Crear registro en Airtable - esta es la operación crítica
     console.log('Creating Airtable record...');
     const records = await base(tableName).create([recordData]);
+    
+    if (!records || records.length === 0) {
+      console.error('No records returned from Airtable create operation');
+      return res.status(500).json({ 
+        error: 'Failed to save test',
+        details: 'No records returned from Airtable'
+      });
+    }
+    
     const createdRecord = records[0];
     const testId = createdRecord.id;
+    
+    if (!testId) {
+      console.error('No ID returned for created record:', createdRecord);
+      return res.status(500).json({ 
+        error: 'Failed to get test ID',
+        details: 'Record created but no ID returned'
+      });
+    }
     
     console.log('Successfully created test with ID:', testId);
     
@@ -217,6 +234,12 @@ async function handlePost(req, res) {
       })();
     }
     
+    // Verificar que el ID está incluido en la respuesta antes de enviarla
+    if (!responseData.id) {
+      console.error('ID missing from response data:', responseData);
+      responseData.id = testId; // Garantizar que el ID esté presente
+    }
+    
     // Enviar respuesta inmediatamente, sin esperar el procesamiento de imágenes
     return res.status(200).json(responseData);
   } catch (error) {
@@ -241,11 +264,6 @@ async function saveImageToAirtable(base, imageId, imageData) {
     const baseId = process.env.AIRTABLE_BASE_ID;
     const apiKey = process.env.AIRTABLE_API_KEY;
     
-    // Si falta alguna credencial necesaria, no fallar
-    if (!baseId || !apiKey) {
-      console.error('Missing Airtable credentials for image upload');
-      return '';
-    }
     
     // Extraer información de la imagen base64
     let fileName, mimeType, base64Content;

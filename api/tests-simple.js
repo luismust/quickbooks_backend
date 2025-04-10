@@ -52,14 +52,37 @@ async function handleSimplePost(req, res) {
     
     console.log('Saving simplified data to Airtable');
     const records = await base(tableName).create([recordData]);
+    
+    if (!records || records.length === 0) {
+      console.error('No records returned from Airtable create operation');
+      return res.status(500).json({ 
+        error: 'Failed to save test',
+        details: 'No records returned from Airtable'
+      });
+    }
+    
     const createdRecord = records[0];
     
-    console.log('Successfully saved test with ID:', createdRecord.id);
-    return res.status(200).json({
+    if (!createdRecord || !createdRecord.id) {
+      console.error('No ID returned for created record:', createdRecord);
+      return res.status(500).json({ 
+        error: 'Failed to get test ID',
+        details: 'Record created but no ID returned'
+      });
+    }
+    
+    const testId = createdRecord.id;
+    
+    console.log('Successfully saved test with ID:', testId);
+    
+    // Asegurar que el ID está presente en la respuesta
+    const responseData = {
       ...test,
-      id: createdRecord.id,
+      id: testId,
       _simplified: true
-    });
+    };
+    
+    return res.status(200).json(responseData);
     
   } catch (error) {
     console.error('Error in simplified test endpoint:', error);
