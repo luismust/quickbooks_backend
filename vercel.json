@@ -3,8 +3,6 @@
   "buildCommand": "echo 'No build step required'",
   "outputDirectory": ".",
   "public": true,
-  "cleanUrls": true,
-  "trailingSlash": false,
   "routes": [
     { "handle": "filesystem" },
     {
@@ -22,6 +20,7 @@
     { "src": "/api/airtable-check", "dest": "/api/airtable-check.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js", "methods": ["GET", "POST", "OPTIONS"] },
     { "src": "/", "dest": "/api/index.js" },
+    { "src": "/(.*\\.html)", "dest": "/$1" },
     { "src": "/(.*)", "status": 404, "dest": "/api/index.js" }
   ],
   "functions": {
