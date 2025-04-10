@@ -1,5 +1,7 @@
 // api/tests-image-debug.js - Versión simplificada para pruebas de imágenes
 const Airtable = require('airtable');
+const fetch = require('node-fetch');
+const FormData = require('form-data');
 
 // Configurar Airtable
 const getAirtableBase = () => {
@@ -17,6 +19,107 @@ const getAirtableBase = () => {
     endpointUrl: 'https://api.airtable.com'
   }).base(baseId);
 };
+
+// Subir imagen a servicio externo para obtener URL
+async function uploadToExternalService(base64Content, fileName) {
+  try {
+    // Probar con varios servicios en caso de que uno falle
+    const services = [
+      {
+        name: 'ImgBB',
+        upload: async () => {
+          // Prepara los datos para ImgBB
+          const params = new URLSearchParams();
+          params.append('key', process.env.IMGBB_API_KEY || '54c2e395fb5d48a2074c5d4ae736f374');
+          params.append('image', base64Content);
+          params.append('name', fileName);
+          
+          // Enviar a ImgBB
+          const response = await fetch('https://api.imgbb.com/1/upload', {
+            method: 'POST',
+            body: params
+          });
+          
+          if (!response.ok) throw new Error(`ImgBB respondió con estado: ${response.status}`);
+          
+          const data = await response.json();
+          if (!data.success) throw new Error('ImgBB rechazó la imagen');
+          
+          return data.data.url;
+        }
+      },
+      {
+        name: 'Imgur',
+        upload: async () => {
+          // Prepara los datos para Imgur
+          const formData = new FormData();
+          formData.append('image', base64Content);
+          
+          // Enviar a Imgur
+          const response = await fetch('https://api.imgur.com/3/image', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Client-ID 546c25a59c58ad7'  // ID de cliente público para pruebas
+            },
+            body: formData
+          });
+          
+          if (!response.ok) throw new Error(`Imgur respondió con estado: ${response.status}`);
+          
+          const data = await response.json();
+          if (!data.success) throw new Error('Imgur rechazó la imagen');
+          
+          return data.data.link;
+        }
+      },
+      {
+        name: 'Cloudinary',
+        upload: async () => {
+          // URL de subida de Cloudinary para pruebas
+          const cloudName = 'demo'; // Cuenta demo pública
+          const unsignedUploadPreset = 'doc_upload'; // Preset público
+          
+          const formData = new FormData();
+          formData.append('file', `data:image/png;base64,${base64Content}`);
+          formData.append('upload_preset', unsignedUploadPreset);
+          
+          // Enviar a Cloudinary
+          const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!response.ok) throw new Error(`Cloudinary respondió con estado: ${response.status}`);
+          
+          const data = await response.json();
+          return data.secure_url;
+        }
+      }
+    ];
+    
+    // Intentar cada servicio hasta que uno funcione
+    let lastError = null;
+    for (const service of services) {
+      try {
+        console.log(`DEBUG - Intentando subir imagen a ${service.name}...`);
+        const url = await service.upload();
+        console.log(`DEBUG - Imagen subida exitosamente a ${service.name}: ${url}`);
+        return url;
+      } catch (error) {
+        console.warn(`DEBUG - Error al subir a ${service.name}:`, error.message);
+        lastError = error;
+        // Continuar con el siguiente servicio
+      }
+    }
+    
+    // Si llegamos aquí, todos los servicios fallaron
+    throw lastError || new Error('Todos los servicios de alojamiento de imágenes fallaron');
+    
+  } catch (error) {
+    console.error('ERROR al subir imagen a servicio externo:', error);
+    throw error;
+  }
+}
 
 // Función para guardar una imagen en Airtable
 async function saveImage(imageData) {
@@ -53,32 +156,35 @@ async function saveImage(imageData) {
     console.log(`Campo: ${imageFieldName}`);
     
     try {
-      console.log('DEBUG - Iniciando enfoque directo con SDK de Airtable...');
+      // 1. Primero subir la imagen a un servicio externo para obtener una URL pública
+      console.log('DEBUG - Subiendo imagen a servicio externo para obtener URL...');
+      const imageUrl = await uploadToExternalService(base64Content, fileName);
       
-      // Obtener la base de Airtable
+      if (!imageUrl) {
+        throw new Error('No se pudo obtener URL externa para la imagen');
+      }
+      
+      console.log(`DEBUG - URL externa obtenida: ${imageUrl}`);
+      
+      // 2. Ahora crear el registro en Airtable con la URL externa
+      console.log('DEBUG - Creando registro en Airtable con URL externa...');
       const base = getAirtableBase();
       
-      // Convertir a URL fácilmente procesable
-      const urlData = imageData;
-      
-      // Crear el registro usando directamente el SDK de Airtable
-      console.log(`DEBUG - Creando registro con imageFieldName: ${imageFieldName}`);
-      
-      // Datos del registro a crear
-      const recordData = {
-        fields: {
-          ID: imageId,
-          [imageFieldName]: [{ 
-            url: urlData
-          }]
-        }
-      };
-      
-      console.log(`DEBUG - Estructura del registro:`, JSON.stringify(recordData, null, 2));
-      
-      // Crear el registro usando el enfoque más simple posible
+      // Formato correcto para los attachments según la documentación de Airtable
       return new Promise((resolve, reject) => {
-        base(tableImages).create([recordData], { typecast: true }, function(err, records) {
+        base(tableImages).create([
+          {
+            fields: {
+              ID: imageId,
+              [imageFieldName]: [
+                {
+                  url: imageUrl,
+                  filename: fileName
+                }
+              ]
+            }
+          }
+        ], function(err, records) {
           if (err) {
             console.error('ERROR al crear registro en Airtable:', err);
             return reject(err);
@@ -92,43 +198,48 @@ async function saveImage(imageData) {
           console.log(`DEBUG - Registro creado con ID:`, record.id);
           
           // Verificar que el registro se creó correctamente
-          base(tableImages).find(record.id, function(err, retrievedRecord) {
-            if (err) {
-              console.warn('ERROR al verificar el registro:', err);
-              // Si hay error al verificar, al menos devolvemos el ID
+          setTimeout(() => {
+            base(tableImages).find(record.id, function(err, retrievedRecord) {
+              if (err) {
+                console.warn('ERROR al verificar el registro:', err);
+                // Si hay error al verificar, al menos devolvemos el ID
+                return resolve({
+                  success: true,
+                  id: record.id,
+                  imageId: imageId,
+                  externalUrl: imageUrl,
+                  note: 'Registro creado pero no se pudo verificar'
+                });
+              }
+              
+              // Verificar si tiene el campo de imagen
+              if (retrievedRecord.fields && 
+                  retrievedRecord.fields[imageFieldName] && 
+                  retrievedRecord.fields[imageFieldName].length > 0) {
+                
+                const image = retrievedRecord.fields[imageFieldName][0];
+                return resolve({
+                  success: true,
+                  id: retrievedRecord.id,
+                  imageId: imageId,
+                  externalUrl: imageUrl,
+                  airtableUrl: image.url,
+                  thumbnails: image.thumbnails || {},
+                  size: image.size,
+                  type: image.type
+                });
+              }
+              
+              // No se encontró la imagen en el registro
               return resolve({
                 success: true,
                 id: record.id,
                 imageId: imageId,
-                note: 'Registro creado pero no se pudo verificar'
+                externalUrl: imageUrl,
+                note: 'El registro se creó pero la imagen no se procesó correctamente'
               });
-            }
-            
-            // Verificar si tiene el campo de imagen
-            if (retrievedRecord.fields && 
-                retrievedRecord.fields[imageFieldName] && 
-                retrievedRecord.fields[imageFieldName].length > 0) {
-              
-              const image = retrievedRecord.fields[imageFieldName][0];
-              return resolve({
-                success: true,
-                id: retrievedRecord.id,
-                imageId: imageId,
-                url: image.url,
-                thumbnails: image.thumbnails || {},
-                size: image.size,
-                type: image.type
-              });
-            }
-            
-            // No se encontró la imagen en el registro
-            return resolve({
-              success: true,
-              id: record.id,
-              imageId: imageId,
-              note: 'El registro se creó pero la imagen no se procesó correctamente'
             });
-          });
+          }, 2000); // Esperar 2 segundos para que Airtable procese la imagen
         });
       });
       
