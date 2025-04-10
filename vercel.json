@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "buildCommand": null,
+  "buildCommand": "echo 'No build step required'",
   "devCommand": null,
   "installCommand": "npm install",
-  "outputDirectory": null,
+  "outputDirectory": ".",
+  "public": false,
   "routes": [
     {
       "src": "/(.*)",
@@ -34,7 +35,8 @@
     { "src": "/api/tests", "dest": "/api/tests.js" },
     { "src": "/api/tests/(.*)", "dest": "/api/tests.js?id=$1" },
     { "src": "/api/images", "dest": "/api/images.js" },
-    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" }
+    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" },
+    { "src": "/(.*)", "dest": "/api/index.js" }
   ],
   "functions": {
     "api/tests.js": {
@@ -68,6 +70,10 @@
     "api/tests-image-debug.js": {
       "memory": 1024,
       "maxDuration": 30
+    },
+    "api/index.js": {
+      "memory": 128,
+      "maxDuration": 2
     }
   },
   "github": {
