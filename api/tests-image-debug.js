@@ -43,6 +43,9 @@ async function saveImage(imageData) {
     const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
     const base = getAirtableBase();
     
+    // Campo para la imagen en Airtable, debe coincidir exactamente con el nombre en la interfaz
+    const imageFieldName = 'Image'; // Asegúrate de que coincida exactamente con el nombre en Airtable, respetando mayúsculas/minúsculas
+    
     console.log(`Usando tabla de imágenes: ${tableImages}`);
     
     // Verificar si la tabla existe intentando obtener un registro
@@ -82,53 +85,105 @@ async function saveImage(imageData) {
     console.log(`Paso 2: Registro creado con ID: ${recordId}, intentando subir imagen`);
     
     // Paso 2: Usar la API de Airtable directamente para subir el archivo
-    // Necesitamos usar fetch o un cliente HTTP directo, no el SDK de Airtable
+    // En lugar de usar el endpoint específico para adjuntos, usaremos el endpoint PATCH para actualizar el registro
     
-    // Convertir base64 a buffer
+    console.log("Intentando método alternativo para subir la imagen...");
+    
+    // Convertir base64 a buffer (para usarlo como fallback si es necesario)
     const buffer = Buffer.from(base64Content, 'base64');
     
-    // Crear FormData para la subida
-    const formData = new FormData();
-    formData.append('file', buffer, {
-      filename: fileName,
-      contentType: mimeType
-    });
+    // Convertir base64 a una URL que Airtable pueda manejar
+    // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...
     
-    // URL del endpoint para subir archivos a Airtable
+    // Crear JSON para la actualización
+    const updateData = {
+      fields: {
+        [imageFieldName]: [
+          {
+            url: imageData // Enviamos directamente el data URL
+          }
+        ]
+      }
+    };
+    
+    // URL del endpoint para actualizar registros en Airtable
     const apiKey = process.env.AIRTABLE_API_KEY;
     const baseId = process.env.AIRTABLE_BASE_ID;
     
-    // Campo para la imagen en Airtable, debe coincidir exactamente con el nombre en la interfaz
-    const imageFieldName = 'Image'; // Asegúrate de que coincida exactamente con el nombre en Airtable, respetando mayúsculas/minúsculas
+    const updateUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}`;
     
-    const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/${imageFieldName}`;
+    console.log(`Intentando actualizar registro con URL: ${updateUrl}`);
     
-    console.log(`Intentando subir imagen a URL: ${uploadUrl}`);
-    // Realizar la solicitud para subir el archivo
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'POST',
+    // Realizar la solicitud para actualizar el registro
+    const updateResponse = await fetch(updateUrl, {
+      method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        // FormData establece su propio Content-Type con el boundary
+        'Content-Type': 'application/json'
       },
-      body: formData
+      body: JSON.stringify(updateData)
     });
     
     // Verificar respuesta
-    if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text();
-      console.error(`Error al subir imagen: ${uploadResponse.status}`, errorText);
-      return { 
-        success: false, 
-        error: `Error al subir imagen: ${uploadResponse.status}`,
-        details: errorText,
-        uploadUrl: uploadUrl,
-        fieldName: imageFieldName
-      };
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      console.error(`Error al actualizar registro: ${updateResponse.status}`, errorText);
+      
+      // Intentar el método estándar de Airtable SDK como segundo intento
+      try {
+        console.log("Intentando método estándar con Airtable SDK...");
+        
+        // Crear un objeto con la imagen requerida
+        const attachmentObject = [
+          {
+            url: imageData
+          }
+        ];
+        
+        // Actualizando el registro con el SDK de Airtable (método más simple)
+        const updateResult = await base(tableImages).update(recordId, {
+          [imageFieldName]: attachmentObject
+        });
+        
+        console.log("Actualización con SDK completada, verificando resultados...");
+        
+        if (updateResult && updateResult.fields && updateResult.fields[imageFieldName]) {
+          console.log("Imagen actualizada correctamente con SDK");
+          
+          // Podemos seguir con el flujo normal
+          const updatedRecord = await base(tableImages).find(recordId);
+          console.log(`Campos disponibles después de SDK: ${Object.keys(updatedRecord.fields).join(', ')}`);
+          
+          // Verificar si se guardó la imagen
+          if (updatedRecord.fields[imageFieldName] && 
+              updatedRecord.fields[imageFieldName][0] && 
+              updatedRecord.fields[imageFieldName][0].url) {
+            
+            const imageAttachment = updatedRecord.fields[imageFieldName][0];
+            console.log(`Imagen subida exitosamente con SDK. URL: ${imageAttachment.url.substring(0, 50)}...`);
+            
+            return {
+              success: true,
+              imageId: imageId,
+              url: imageAttachment.url,
+              recordId: recordId,
+              thumbnails: imageAttachment.thumbnails || {},
+              size: imageAttachment.size,
+              type: imageAttachment.type,
+              method: "airtable-sdk"
+            };
+          }
+        }
+      } catch (sdkError) {
+        console.error("Error en método SDK:", sdkError);
+      }
+      
+      // Si el método SDK también falla, intentar el método original como fallback
+      return await uploadImageOriginalMethod(apiKey, baseId, tableImages, recordId, imageFieldName, buffer, fileName, mimeType);
     }
     
-    const uploadResult = await uploadResponse.json();
-    console.log(`Paso 3: Imagen subida, obteniendo información del registro actualizado`);
+    const updateResult = await updateResponse.json();
+    console.log(`Paso 3: Registro actualizado, obteniendo información`);
     
     // Paso 3: Obtener el registro actualizado para verificar la URL
     console.log(`Paso 3: Obteniendo registro actualizado con ID: ${recordId}`);
@@ -181,6 +236,45 @@ async function saveImage(imageData) {
       response: error.response ? JSON.stringify(error.response.data || {}).substring(0, 200) : null
     };
   }
+}
+
+// Función para intentar el método original como fallback
+async function uploadImageOriginalMethod(apiKey, baseId, tableImages, recordId, imageFieldName, buffer, fileName, mimeType) {
+  // Crear FormData para la subida
+  const formData = new FormData();
+  formData.append('file', buffer, {
+    filename: fileName,
+    contentType: mimeType
+  });
+  
+  const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/${imageFieldName}`;
+  
+  console.log(`Intentando método original: subir imagen a URL: ${uploadUrl}`);
+  
+  // Realizar la solicitud para subir el archivo
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`
+      // FormData establece su propio Content-Type con el boundary
+    },
+    body: formData
+  });
+  
+  // Verificar respuesta
+  if (!uploadResponse.ok) {
+    const errorText = await uploadResponse.text();
+    console.error(`Error al subir imagen (método original): ${uploadResponse.status}`, errorText);
+    return { 
+      success: false, 
+      error: `Error al subir imagen: ${uploadResponse.status}`,
+      details: errorText,
+      uploadUrl: uploadUrl,
+      fieldName: imageFieldName
+    };
+  }
+  
+  return await uploadResponse.json();
 }
 
 // Endpoint principal
