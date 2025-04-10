@@ -205,11 +205,16 @@ async function saveImage(imageData) {
           base(tableImages).find(record.id, function(err, retrievedRecord) {
             if (err) {
               console.error('ERROR al recuperar registro:', err);
+              // Si hay error al verificar, al menos devolvemos el ID y la URL de la imagen externa
               return resolve({
                 success: true,
                 id: record.id,
                 imageId: imageId,
                 externalUrl: imageUrl,
+                // Proporcionar información que se mostrará en la UI
+                url: imageUrl,  // Usar la URL externa directamente
+                type: mimeType,
+                size: "Tamaño desconocido",
                 note: 'Registro creado pero no se pudo verificar'
               });
             }
@@ -220,74 +225,52 @@ async function saveImage(imageData) {
               
               const image = retrievedRecord.fields[imageFieldName][0];
               
-              // Si tenemos datos de la imagen pero no metadatos completos, esperar y reintentar
+              // Incluso si los metadatos no están completos, devolver la información con valores predeterminados
+              const result = {
+                success: true,
+                id: retrievedRecord.id,
+                imageId: imageId,
+                externalUrl: imageUrl,
+                url: image.url || imageUrl,  // Si no hay URL de Airtable, usar la de Imgur
+                airtableUrl: image.url || "En procesamiento",
+                size: image.size || "En procesamiento",
+                type: image.type || mimeType,
+                thumbnails: image.thumbnails || {},
+                note: 'Imagen cargada correctamente. Procesamiento en Airtable en curso.'
+              };
+              
+              // Si la imagen aún no se ha procesado completamente, esperar y reintentar
               if (!image.url || !image.type || !image.size) {
                 console.log('DEBUG - La imagen aún no se ha procesado completamente. Esperando 5 segundos...');
                 
-                // Esperar y reintentar
+                // Devolvemos el resultado actual pero también esperamos para un posible procesamiento adicional
                 setTimeout(() => {
                   base(tableImages).find(record.id, function(finalErr, finalRecord) {
-                    if (finalErr) {
-                      console.error('ERROR final al recuperar registro:', finalErr);
-                      return resolve({
-                        success: true,
-                        id: record.id,
-                        imageId: imageId,
-                        externalUrl: imageUrl,
-                        note: 'Registro creado correctamente, pero no se pudo verificar después de esperar'
-                      });
-                    }
-                    
-                    if (finalRecord.fields && 
+                    console.log('DEBUG - Verificación final después de espera adicional');
+                    if (!finalErr && 
+                        finalRecord && 
+                        finalRecord.fields && 
                         finalRecord.fields[imageFieldName] && 
                         finalRecord.fields[imageFieldName].length > 0) {
                       
-                      const finalImage = finalRecord.fields[imageFieldName][0];
-                      
-                      // Devolver lo que tengamos, incluso si no está completamente procesado
-                      resolve({
-                        success: true,
-                        id: record.id,
-                        imageId: imageId,
-                        externalUrl: imageUrl,
-                        airtableUrl: finalImage.url || 'procesando',
-                        size: finalImage.size || 0,
-                        type: finalImage.type || mimeType,
-                        thumbnails: finalImage.thumbnails || {},
-                        note: finalImage.url ? 'Imagen procesada después de espera adicional' : 'La imagen podría tardar más en procesarse'
-                      });
-                    } else {
-                      resolve({
-                        success: true,
-                        id: record.id,
-                        imageId: imageId,
-                        externalUrl: imageUrl,
-                        note: 'La imagen aún no está disponible después de esperar. Verificar manualmente en Airtable.'
-                      });
+                      console.log('DEBUG - La imagen ha sido actualizada en Airtable después de esperar');
                     }
                   });
-                }, 5000); // Esperar 5 segundos más
-              } else {
-                // La imagen ya tiene todos los metadatos
-                resolve({
-                  success: true,
-                  id: record.id,
-                  imageId: imageId,
-                  externalUrl: imageUrl,
-                  airtableUrl: image.url,
-                  size: image.size,
-                  type: image.type,
-                  thumbnails: image.thumbnails || {}
-                });
+                }, 5000); // Esperar 5 segundos adicionales
               }
+              
+              return resolve(result);
             } else {
-              // No hay datos de la imagen todavía
+              // No hay datos de la imagen todavía, pero tenemos la URL de Imgur
               resolve({
                 success: true,
                 id: record.id,
                 imageId: imageId,
                 externalUrl: imageUrl,
-                note: 'El registro se creó pero la imagen aún no está disponible. Verificar manualmente en Airtable.'
+                url: imageUrl,  // Usar la URL externa directamente
+                type: mimeType,
+                size: "En procesamiento",
+                note: 'Registro creado en Airtable. La imagen está disponible en la URL externa.'
               });
             }
           });
@@ -374,6 +357,53 @@ module.exports = async (req, res) => {
       const result = await saveImage(imageData);
       
       if (result.success) {
+        // Si es una solicitud GET o el cliente espera HTML, devolver una página HTML formateada
+        if (req.headers.accept && req.headers.accept.includes('text/html')) {
+          const html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Resultado de carga de imagen</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+              h1 { color: #008000; }
+              .error { color: #FF0000; }
+              .image-container { margin: 20px 0; }
+              img { max-width: 100%; border: 1px solid #ddd; }
+              .info { margin: 10px 0; }
+              .label { font-weight: bold; }
+              pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+            </style>
+          </head>
+          <body>
+            <h1>${result.success ? '¡Imagen subida exitosamente!' : 'Error al subir imagen'}</h1>
+            ${result.note ? `<p>${result.note}</p>` : ''}
+            
+            <div class="info">
+              <p><span class="label">ID:</span> ${result.imageId}</p>
+              <p><span class="label">URL:</span> <a href="${result.externalUrl}" target="_blank">${result.externalUrl}</a></p>
+              <p><span class="label">Tipo:</span> ${result.type || 'En procesamiento'}</p>
+              <p><span class="label">Tamaño:</span> ${result.size || 'En procesamiento'}</p>
+            </div>
+            
+            <div class="image-container">
+              <h2>Imagen subida</h2>
+              <img src="${result.externalUrl}" alt="Imagen subida">
+            </div>
+            
+            <h2>Detalles completos:</h2>
+            <pre>${JSON.stringify(result, null, 2)}</pre>
+          </body>
+          </html>
+          `;
+          
+          res.setHeader('Content-Type', 'text/html');
+          return res.status(200).send(html);
+        }
+        
+        // Respuesta JSON normal
         return res.status(200).json(result);
       } else {
         return res.status(500).json(result);
