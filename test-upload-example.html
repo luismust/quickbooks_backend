@@ -87,6 +87,7 @@
                 <label>Imagen (opcional):</label>
                 <input type="file" class="question-image" accept="image/*">
                 <div class="image-preview"></div>
+                <div class="image-stats" style="font-size: 12px; color: #666;"></div>
             </div>
         </div>
     </div>
@@ -129,6 +130,7 @@
                     <label>Imagen (opcional):</label>
                     <input type="file" class="question-image" accept="image/*">
                     <div class="image-preview"></div>
+                    <div class="image-stats" style="font-size: 12px; color: #666;"></div>
                 </div>
             `;
             
@@ -137,34 +139,138 @@
             // Añadir evento para previsualizar la imagen
             const imageInput = questionDiv.querySelector('.question-image');
             const imagePreview = questionDiv.querySelector('.image-preview');
+            const imageStats = questionDiv.querySelector('.image-stats');
             
             imageInput.addEventListener('change', function(e) {
-                handleImagePreview(this, imagePreview);
+                handleImageSelection(this, imagePreview, imageStats);
             });
         });
         
         // Añadir manejadores de eventos para la primera pregunta
         document.querySelector('.question-image').addEventListener('change', function(e) {
             const imagePreview = this.parentNode.querySelector('.image-preview');
-            handleImagePreview(this, imagePreview);
+            const imageStats = this.parentNode.querySelector('.image-stats') || 
+                              document.createElement('div'); // Crear si no existe
+            if (!imageStats.className) {
+                imageStats.className = 'image-stats';
+                imageStats.style = 'font-size: 12px; color: #666;';
+                this.parentNode.appendChild(imageStats);
+            }
+            handleImageSelection(this, imagePreview, imageStats);
         });
         
-        // Función para manejar la previsualización de imágenes
-        function handleImagePreview(input, previewElement) {
+        // Función para manejar la selección de imágenes
+        function handleImageSelection(input, previewElement, statsElement) {
             if (input.files && input.files[0]) {
-                const reader = new FileReader();
+                const file = input.files[0];
                 
-                reader.onload = function(e) {
-                    const img = document.createElement('img');
-                    img.src = e.target.result;
-                    img.className = 'image-preview';
+                // Mostrar información del archivo
+                statsElement.textContent = `Archivo: ${file.name} (${formatFileSize(file.size)})`;
+                
+                // Comprobar si necesita optimización
+                if (file.size > 1024 * 1024) { // Si es mayor a 1MB
+                    statsElement.textContent += ' - Se optimizará antes de cargar';
+                    optimizeImage(file, previewElement, statsElement, input);
+                } else {
+                    // Cargar directamente si es pequeña
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        // Guardar datos en el input para uso posterior
+                        input._imageData = e.target.result;
+                        
+                        // Mostrar vista previa
+                        displayImagePreview(e.target.result, previewElement);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+        
+        // Función para optimizar imagen
+        function optimizeImage(file, previewElement, statsElement, input) {
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const img = new Image();
+                
+                img.onload = function() {
+                    // Calcular dimensiones para redimensionar
+                    const MAX_WIDTH = 1200;
+                    const MAX_HEIGHT = 1200;
                     
-                    previewElement.innerHTML = '';
-                    previewElement.appendChild(img);
+                    let width = img.width;
+                    let height = img.height;
+                    let quality = 0.7; // Calidad inicial
+                    
+                    // Redimensionar si es necesario
+                    if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height = Math.round(height * MAX_WIDTH / width);
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width = Math.round(width * MAX_HEIGHT / height);
+                                height = MAX_HEIGHT;
+                            }
+                        }
+                    }
+                    
+                    // Crear canvas para redimensionar
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // Dibujar imagen redimensionada
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Convertir a formato de imagen comprimido
+                    const mimeType = file.type || 'image/jpeg';
+                    const optimizedData = canvas.toDataURL(mimeType, quality);
+                    
+                    // Si aún es grande, comprimir más
+                    if (optimizedData.length > 1024 * 1024 * 1.5) {
+                        quality = 0.5;
+                        const moreOptimized = canvas.toDataURL(mimeType, quality);
+                        input._imageData = moreOptimized;
+                        
+                        // Mostrar estadísticas
+                        const finalSize = Math.round(moreOptimized.length / 1024);
+                        statsElement.textContent += ` → Optimizado: ${finalSize}KB (${width}x${height}, calidad: 50%)`;
+                        displayImagePreview(moreOptimized, previewElement);
+                    } else {
+                        input._imageData = optimizedData;
+                        
+                        // Mostrar estadísticas
+                        const optSize = Math.round(optimizedData.length / 1024);
+                        statsElement.textContent += ` → Optimizado: ${optSize}KB (${width}x${height}, calidad: 70%)`;
+                        displayImagePreview(optimizedData, previewElement);
+                    }
                 };
                 
-                reader.readAsDataURL(input.files[0]);
-            }
+                img.src = e.target.result;
+            };
+            
+            reader.readAsDataURL(file);
+        }
+        
+        // Función para mostrar vista previa
+        function displayImagePreview(src, previewElement) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.className = 'image-preview';
+            
+            previewElement.innerHTML = '';
+            previewElement.appendChild(img);
+        }
+        
+        // Función para formatear tamaño de archivo
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' bytes';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            else return (bytes / 1048576).toFixed(1) + ' MB';
         }
         
         // Evento para enviar el test

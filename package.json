@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node api/index.js",
+    "build": "echo \"No build step required\""
   },
   "keywords": [],
   "author": "",
@@ -16,6 +18,9 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "form-data": "^4.0.2",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^2.6.9"
+  },
+  "engines": {
+    "node": ">=14.x"
   }
 }

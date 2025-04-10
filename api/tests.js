@@ -457,9 +457,6 @@ async function saveImageToAirtable(base, imageId, imageData) {
       }
       
       // Paso 3: Subir la imagen usando la API REST directamente
-      const fetch = require('node-fetch');
-      const FormData = require('form-data');
-      
       // Convertir base64 a buffer
       const buffer = Buffer.from(base64Content, 'base64');
       

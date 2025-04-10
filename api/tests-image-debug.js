@@ -1,5 +1,7 @@
 // api/tests-image-debug.js - Versión simplificada para pruebas de imágenes
 const Airtable = require('airtable');
+const fetch = require('node-fetch');
+const FormData = require('form-data');
 
 // Configurar Airtable
 const getAirtableBase = () => {
@@ -66,8 +68,6 @@ async function saveImage(imageData) {
     
     // Paso 2: Usar la API de Airtable directamente para subir el archivo
     // Necesitamos usar fetch o un cliente HTTP directo, no el SDK de Airtable
-    const fetch = require('node-fetch');
-    const FormData = require('form-data');
     
     // Convertir base64 a buffer
     const buffer = Buffer.from(base64Content, 'base64');

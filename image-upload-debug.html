@@ -102,22 +102,97 @@
                 // Mostrar información sobre el archivo
                 imageStatsDiv.textContent = `Archivo: ${file.name} (${formatFileSize(file.size)}, ${file.type})`;
                 
-                const reader = new FileReader();
-                
-                reader.onload = function(e) {
-                    imageData = e.target.result; // Guardar datos base64
+                // Comprobar si es necesario optimizar
+                if (file.size > 1024 * 1024) { // Si es mayor a 1MB
+                    imageStatsDiv.textContent += ' - Se optimizará antes de cargar';
+                    optimizeAndLoadImage(file);
+                } else {
+                    // Si es pequeña, cargar normalmente
+                    const reader = new FileReader();
                     
-                    const img = document.createElement('img');
-                    img.src = imageData;
-                    img.className = 'image-preview';
+                    reader.onload = function(e) {
+                        imageData = e.target.result;
+                        displayImagePreview(imageData);
+                    };
                     
-                    imagePreviewDiv.innerHTML = '';
-                    imagePreviewDiv.appendChild(img);
-                };
-                
-                reader.readAsDataURL(file);
+                    reader.readAsDataURL(file);
+                }
             }
         });
+        
+        // Función para optimizar imagen
+        function optimizeAndLoadImage(file) {
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const img = new Image();
+                
+                img.onload = function() {
+                    // Calcular el factor de escala para reducir el tamaño
+                    const MAX_WIDTH = 1200;
+                    const MAX_HEIGHT = 1200;
+                    
+                    let width = img.width;
+                    let height = img.height;
+                    let quality = 0.7; // Calidad inicial de compresión
+                    
+                    // Redimensionar si es demasiado grande
+                    if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height = Math.round(height * MAX_WIDTH / width);
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width = Math.round(width * MAX_HEIGHT / height);
+                                height = MAX_HEIGHT;
+                            }
+                        }
+                    }
+                    
+                    // Crear canvas para redimensionar
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // Dibujar imagen redimensionada
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Convertir a formato de imagen con compresión
+                    let mimeType = file.type || 'image/jpeg';
+                    imageData = canvas.toDataURL(mimeType, quality);
+                    
+                    // Si aún es demasiado grande, aumentar la compresión
+                    if (imageData.length > 1024 * 1024 * 1.5) {
+                        quality = 0.5;
+                        imageData = canvas.toDataURL(mimeType, quality);
+                    }
+                    
+                    // Mostrar estadísticas de la imagen optimizada
+                    const optimizedSize = Math.round(imageData.length / 1024);
+                    imageStatsDiv.textContent += ` → Optimizado: ${optimizedSize}KB (${width}x${height}, calidad: ${Math.round(quality * 100)}%)`;
+                    
+                    // Mostrar vista previa
+                    displayImagePreview(imageData);
+                };
+                
+                img.src = e.target.result;
+            };
+            
+            reader.readAsDataURL(file);
+        }
+        
+        // Función para mostrar vista previa de imagen
+        function displayImagePreview(src) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.className = 'image-preview';
+            
+            imagePreviewDiv.innerHTML = '';
+            imagePreviewDiv.appendChild(img);
+        }
         
         // Formatear tamaño de archivo
         function formatFileSize(bytes) {

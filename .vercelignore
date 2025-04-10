@@ -1,0 +1,15 @@
+# Archivos y directorios para ignorar en despliegue de Vercel
+node_modules
+.git
+.gitignore
+.env
+.env.local
+.env.development
+.env.test
+README.md
+LICENSE
+*.log
+*.test.js
+test-upload-example.html
+image-upload-debug.html
+.github 
