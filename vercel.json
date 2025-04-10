@@ -22,11 +22,16 @@
       }
     },
     { "src": "/api/debug", "dest": "/api/debug.js" },
+    { "src": "/api/tests-simple", "dest": "/api/tests-simple.js" },
     { "src": "/api/tests", "dest": "/api/tests.js" },
     { "src": "/api/tests/(.*)", "dest": "/api/tests/[id].js?id=$1" }
   ],
   "functions": {
     "api/tests.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/tests-simple.js": {
       "memory": 1024,
       "maxDuration": 10
     },
