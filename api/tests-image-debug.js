@@ -84,10 +84,69 @@ async function saveImage(imageData) {
     const recordId = initialRecord[0].id;
     console.log(`Paso 2: Registro creado con ID: ${recordId}, intentando subir imagen`);
     
-    // Paso 2: Usar la API de Airtable directamente para subir el archivo
-    // En lugar de usar el endpoint específico para adjuntos, usaremos el endpoint PATCH para actualizar el registro
+    // Intentar subir la imagen utilizando ImgBB como intermediario
+    try {
+      console.log("Intentando subir la imagen a ImgBB...");
+      
+      // Crear una solicitud a ImgBB (servicio gratuito de alojamiento de imágenes con API)
+      const imgbbApiKey = "bca5e3975c6fb91bdda1dc27ad8c07e0"; // Clave API gratuita de ImgBB
+      const imgbbUrl = `https://api.imgbb.com/1/upload?key=${imgbbApiKey}`;
+      
+      // Preparar el formulario para ImgBB
+      const imgbbForm = new FormData();
+      imgbbForm.append('image', base64Content); // Solo el contenido base64 sin el prefijo "data:image/..."
+      
+      // Realizar la solicitud a ImgBB
+      const imgbbResponse = await fetch(imgbbUrl, {
+        method: 'POST',
+        body: imgbbForm
+      });
+      
+      if (!imgbbResponse.ok) {
+        throw new Error(`Error al subir a ImgBB: ${imgbbResponse.status}`);
+      }
+      
+      const imgbbResult = await imgbbResponse.json();
+      
+      if (!imgbbResult.success) {
+        throw new Error("ImgBB rechazó la imagen");
+      }
+      
+      console.log("Imagen subida exitosamente a ImgBB");
+      const imageUrl = imgbbResult.data.url;
+      const displayUrl = imgbbResult.data.display_url;
+      const thumbnailUrl = imgbbResult.data.thumb?.url || displayUrl;
+      
+      // Ahora actualizamos el registro de Airtable con esta URL (que es mucho más simple)
+      console.log(`Actualizando Airtable con la URL: ${imageUrl}`);
+      
+      // Actualizando registro con URL externa (esto debería funcionar sin problemas)
+      await base(tableImages).update(recordId, {
+        [imageFieldName]: [{ url: displayUrl }],
+        ExternalURL: displayUrl,
+        ThumbnailURL: thumbnailUrl
+      });
+      
+      // Obtenemos el registro actualizado
+      const updatedRecord = await base(tableImages).find(recordId);
+      
+      // Devolver éxito con la URL de ImgBB
+      return {
+        success: true,
+        imageId: imageId,
+        url: displayUrl,
+        thumbnail: thumbnailUrl,
+        recordId: recordId,
+        airtableFields: Object.keys(updatedRecord.fields),
+        uploadMethod: "imgbb-external"
+      };
+    } catch (externalError) {
+      console.error("Error al usar el servicio externo:", externalError);
+      
+      // Continuamos con el resto de la lógica si falla lo anterior
+    }
     
-    console.log("Intentando método alternativo para subir la imagen...");
+    // Si llegamos aquí, intentamos el método alternativo con PATCH...
     
     // Convertir base64 a buffer (para usarlo como fallback si es necesario)
     const buffer = Buffer.from(base64Content, 'base64');
