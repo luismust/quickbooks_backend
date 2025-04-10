@@ -27,6 +27,10 @@ module.exports = async (req, res) => {
         '/api/airtable-check - Verificar configuración de Airtable',
         '/api/tests-image-debug - Diagnosticar problemas de carga de imágenes'
       ],
+      test_pages: [
+        '/image-upload-debug.html - Prueba de carga de imágenes',
+        '/test-upload-example.html - Prueba de creación de tests completos'
+      ],
       environment: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString()
     });

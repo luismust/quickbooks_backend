@@ -36,6 +36,8 @@
     { "src": "/api/tests/(.*)", "dest": "/api/tests.js?id=$1" },
     { "src": "/api/images", "dest": "/api/images.js" },
     { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" },
+    { "src": "/image-upload-debug.html", "dest": "/api/serve-test-page.js" },
+    { "src": "/test-upload-example.html", "dest": "/api/serve-test-page.js?page=test-upload" },
     { "src": "/(.*)", "dest": "/api/index.js" }
   ],
   "functions": {
