@@ -420,7 +420,10 @@ async function saveImageToAirtable(base, imageId, imageData) {
     }
     
     try {
-      // Verificar si ya existe esta imagen en la tabla
+      // NUEVO ENFOQUE: Crear el registro primero y luego subir la imagen
+      console.log(`Creating Airtable record for image ${imageId}`);
+      
+      // Paso 1: Verificar si ya existe esta imagen
       const existingRecords = await base(tableImages)
         .select({
           filterByFormula: `{ID}="${imageId}"`,
@@ -428,43 +431,80 @@ async function saveImageToAirtable(base, imageId, imageData) {
         })
         .all();
       
-      // MÉTODO CORRECTO: Usar create con el formato adecuado para attachments
-      const recordId = existingRecords.length > 0 ? existingRecords[0].id : null;
+      let recordId;
       
-      // Convertir base64 a un formato adecuado para Airtable
-      // Nota: Airtable espera un objeto con filename, type y url (o content para POST)
-      const recordData = {
-        fields: {
-          ID: imageId,
-          Image: [
-            {
-              filename: fileName,
-              content_type: mimeType,
-              content: base64Content
+      // Paso 2: Crear o actualizar el registro
+      if (existingRecords.length > 0) {
+        recordId = existingRecords[0].id;
+        console.log(`Found existing record for image ${imageId} with ID: ${recordId}`);
+      } else {
+        // Crear nuevo registro solo con el ID
+        const newRecords = await base(tableImages).create([
+          {
+            fields: {
+              ID: imageId
             }
-          ]
+          }
+        ]);
+        
+        if (!newRecords || newRecords.length === 0) {
+          console.error('Failed to create initial record for image');
+          return '';
         }
-      };
-      
-      let response;
-      if (recordId) {
-        // Actualizar registro existente
-        response = await base(tableImages).update(recordId, recordData);
-      } else {
-        // Crear nuevo registro
-        const records = await base(tableImages).create([recordData]);
-        response = records[0];
+        
+        recordId = newRecords[0].id;
+        console.log(`Created new record for image ${imageId} with ID: ${recordId}`);
       }
       
-      // Obtener la URL de la imagen subida desde el registro actualizado
-      let attachmentUrl = '';
-      if (response && response.fields && response.fields.Image && 
-          response.fields.Image[0] && response.fields.Image[0].url) {
-        attachmentUrl = response.fields.Image[0].url;
-        console.log(`Successfully saved image with ID: ${imageId}, URL: ${attachmentUrl.substring(0, 50)}...`);
-      } else {
-        console.warn('Image uploaded but URL not returned:', response);
+      // Paso 3: Subir la imagen usando la API REST directamente
+      const fetch = require('node-fetch');
+      const FormData = require('form-data');
+      
+      // Convertir base64 a buffer
+      const buffer = Buffer.from(base64Content, 'base64');
+      
+      // Crear FormData para la subida
+      const formData = new FormData();
+      formData.append('file', buffer, {
+        filename: fileName,
+        contentType: mimeType
+      });
+      
+      // URL del endpoint para subir archivos a Airtable
+      const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/Image`;
+      
+      // Realizar la solicitud para subir el archivo
+      console.log(`Uploading image file to Airtable for record ${recordId}`);
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+          // FormData establece su propio Content-Type con el boundary
+        },
+        body: formData
+      });
+      
+      // Verificar respuesta
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error(`Error uploading image: ${uploadResponse.status}`, errorText);
+        return '';
       }
+      
+      // Paso 4: Obtener el registro actualizado para verificar la URL
+      const updatedRecord = await base(tableImages).find(recordId);
+      
+      // Verificar si se guardó la imagen
+      if (!updatedRecord.fields.Image || 
+          !updatedRecord.fields.Image[0] || 
+          !updatedRecord.fields.Image[0].url) {
+        console.error('Image uploaded but URL not found in record');
+        return '';
+      }
+      
+      // Obtener la URL de la imagen
+      const attachmentUrl = updatedRecord.fields.Image[0].url;
+      console.log(`Successfully uploaded image ${imageId} to Airtable, URL: ${attachmentUrl.substring(0, 50)}...`);
       
       return attachmentUrl;
     } catch (uploadError) {

@@ -35,7 +35,7 @@
   "functions": {
     "api/tests.js": {
       "memory": 1024,
-      "maxDuration": 10
+      "maxDuration": 20
     },
     "api/tests-simple.js": {
       "memory": 1024,
@@ -54,16 +54,16 @@
       "maxDuration": 5
     },
     "api/images.js": {
-      "memory": 512,
-      "maxDuration": 5
+      "memory": 1024,
+      "maxDuration": 10
     },
     "api/airtable-check.js": {
       "memory": 512,
       "maxDuration": 5
     },
     "api/tests-image-debug.js": {
-      "memory": 1024,
-      "maxDuration": 10
+      "memory": 1536,
+      "maxDuration": 30
     }
   }
 }

@@ -41,37 +41,83 @@ async function saveImage(imageData) {
     const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
     const base = getAirtableBase();
     
-    // Crear registro con la imagen
-    const recordData = {
-      fields: {
-        ID: imageId,
-        Image: [
-          {
-            filename: fileName,
-            content_type: mimeType,
-            content: base64Content
-          }
-        ]
+    // Crear registro con la imagen - FORMATO CORREGIDO
+    // Airtable espera un objeto sin la propiedad "content_type" y "content"
+    // La documentación indica que el objeto de attachment debe tener: url, filename, size, type, etc.
+    // Como no tenemos URL, usamos el API de Airtable para crear un archivo vacío primero
+    // y luego actualizarlo manualmente
+    
+    // Paso 1: Crear un registro con solo el ID
+    console.log(`Paso 1: Creando registro para imagen ID: ${imageId}`);
+    const initialRecord = await base(tableImages).create([
+      {
+        fields: {
+          ID: imageId
+        }
       }
-    };
+    ]);
     
-    console.log(`Intentando guardar imagen con ID: ${imageId}, tipo: ${mimeType}, tamaño base64: ${base64Content.length}`);
-    
-    // Crear el registro
-    const records = await base(tableImages).create([recordData]);
-    
-    if (!records || records.length === 0) {
-      return { success: false, error: 'No se recibió respuesta al crear el registro' };
+    if (!initialRecord || initialRecord.length === 0) {
+      return { success: false, error: 'No se pudo crear el registro inicial' };
     }
     
-    const record = records[0];
+    const recordId = initialRecord[0].id;
+    console.log(`Paso 2: Registro creado con ID: ${recordId}, intentando subir imagen`);
     
-    // Verificar si se guardó la imagen
-    if (!record.fields.Image || !record.fields.Image[0] || !record.fields.Image[0].url) {
+    // Paso 2: Usar la API de Airtable directamente para subir el archivo
+    // Necesitamos usar fetch o un cliente HTTP directo, no el SDK de Airtable
+    const fetch = require('node-fetch');
+    const FormData = require('form-data');
+    
+    // Convertir base64 a buffer
+    const buffer = Buffer.from(base64Content, 'base64');
+    
+    // Crear FormData para la subida
+    const formData = new FormData();
+    formData.append('file', buffer, {
+      filename: fileName,
+      contentType: mimeType
+    });
+    
+    // URL del endpoint para subir archivos a Airtable
+    const apiKey = process.env.AIRTABLE_API_KEY;
+    const baseId = process.env.AIRTABLE_BASE_ID;
+    const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/Image`;
+    
+    // Realizar la solicitud para subir el archivo
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        // FormData establece su propio Content-Type con el boundary
+      },
+      body: formData
+    });
+    
+    // Verificar respuesta
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
       return { 
         success: false, 
-        error: 'Imagen guardada sin URL',
-        record: JSON.stringify(record)
+        error: `Error al subir imagen: ${uploadResponse.status}`,
+        details: errorText
+      };
+    }
+    
+    const uploadResult = await uploadResponse.json();
+    console.log(`Paso 3: Imagen subida, obteniendo información del registro actualizado`);
+    
+    // Paso 3: Obtener el registro actualizado para verificar la URL
+    const updatedRecord = await base(tableImages).find(recordId);
+    
+    // Verificar si se guardó la imagen
+    if (!updatedRecord.fields.Image || 
+        !updatedRecord.fields.Image[0] || 
+        !updatedRecord.fields.Image[0].url) {
+      return { 
+        success: false, 
+        error: 'Imagen subida pero no se encontró URL',
+        record: JSON.stringify(updatedRecord)
       };
     }
     
@@ -79,11 +125,11 @@ async function saveImage(imageData) {
     return {
       success: true,
       imageId: imageId,
-      url: record.fields.Image[0].url,
-      recordId: record.id,
-      thumbnails: record.fields.Image[0].thumbnails || {},
-      size: record.fields.Image[0].size,
-      type: record.fields.Image[0].type
+      url: updatedRecord.fields.Image[0].url,
+      recordId: recordId,
+      thumbnails: updatedRecord.fields.Image[0].thumbnails || {},
+      size: updatedRecord.fields.Image[0].size,
+      type: updatedRecord.fields.Image[0].type
     };
   } catch (error) {
     console.error('Error al guardar imagen:', error);
