@@ -3,7 +3,10 @@
   "buildCommand": "echo 'No build step required'",
   "outputDirectory": ".",
   "public": true,
+  "cleanUrls": true,
+  "trailingSlash": false,
   "routes": [
+    { "handle": "filesystem" },
     {
       "src": "/api/(.*)",
       "headers": {
@@ -14,11 +17,12 @@
       },
       "continue": true
     },
-    { "src": "/api/tests", "dest": "/api/tests.js" },
-    { "src": "/api/images", "dest": "/api/images.js" },
-    { "src": "/api/airtable-check", "dest": "/api/airtable-check.js" },
-    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js" },
-    { "src": "/(.*\\.html)", "dest": "/$1" }
+    { "src": "/api/tests", "dest": "/api/tests.js", "methods": ["GET", "POST", "OPTIONS"] },
+    { "src": "/api/images", "dest": "/api/images.js", "methods": ["GET", "OPTIONS"] },
+    { "src": "/api/airtable-check", "dest": "/api/airtable-check.js", "methods": ["GET", "OPTIONS"] },
+    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js", "methods": ["GET", "POST", "OPTIONS"] },
+    { "src": "/", "dest": "/api/index.js" },
+    { "src": "/(.*)", "status": 404, "dest": "/api/index.js" }
   ],
   "functions": {
     "api/tests.js": {
@@ -36,6 +40,10 @@
     "api/tests-image-debug.js": {
       "memory": 1024,
       "maxDuration": 30
+    },
+    "api/index.js": {
+      "memory": 512,
+      "maxDuration": 10
     }
   },
   "github": {
