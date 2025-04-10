@@ -18,13 +18,8 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
   
-  // Verificar la ruta solicitada
-  const { pathname = '/' } = new URL(req.url, `http://${req.headers.host}`);
-  
-  // Servir las páginas de prueba
-  if (pathname === '/image-upload-debug.html' || pathname === '/test-upload-example.html') {
-    return serveTestPage(req, res, pathname);
-  }
+  // Verificar ruta solicitada
+  const { pathname = '/' } = new URL(req.url, `https://${req.headers.host}`);
   
   // Para solicitudes GET a la raíz, responder con información de estado
   if (req.method === 'GET' && pathname === '/') {
@@ -34,12 +29,7 @@ module.exports = async (req, res) => {
       endpoints: [
         '/api/tests - Obtener o crear tests',
         '/api/images - Obtener imágenes',
-        '/api/airtable-check - Verificar configuración de Airtable',
-        '/api/tests-image-debug - Diagnosticar problemas de carga de imágenes'
-      ],
-      test_pages: [
-        '/image-upload-debug.html - Prueba de carga de imágenes',
-        '/test-upload-example.html - Prueba de creación de tests completos'
+        '/api/airtable-check - Verificar configuración de Airtable'
       ],
       environment: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString()

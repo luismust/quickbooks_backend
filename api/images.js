@@ -1,5 +1,6 @@
-// api/images.js - Endpoint para obtener imágenes de Airtable
+// api/images.js - Endpoint para obtener imágenes de Vercel Blob Storage
 const Airtable = require('airtable');
+const { list } = require('@vercel/blob');
 
 // Configurar Airtable
 const getAirtableBase = () => {
@@ -21,7 +22,7 @@ const getAirtableBase = () => {
 module.exports = async (req, res) => {
   // Establecer cabeceras CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', '*'); // Permitimos cualquier origen para imágenes
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
@@ -62,27 +63,43 @@ module.exports = async (req, res) => {
     // Obtener el registro y la URL de la imagen
     const record = records[0];
     
-    if (!record.fields.Image || !record.fields.Image[0] || !record.fields.Image[0].url) {
-      console.warn(`Record found for ID ${id} but no image URL available`);
-      return res.status(404).json({ error: 'Image URL not found' });
+    // Primero verificar si tenemos una URL de Blob Storage
+    if (record.fields.BlobURL) {
+      const imageUrl = record.fields.BlobURL;
+      return res.status(200).json({
+        id: id,
+        url: imageUrl,
+        size: record.fields.Size,
+        type: record.fields.ContentType,
+        source: 'vercel-blob'
+      });
     }
     
-    const imageUrl = record.fields.Image[0].url;
+    // Como respaldo, verificar si hay una imagen en el campo Image de Airtable
+    if (record.fields.Image && record.fields.Image[0] && record.fields.Image[0].url) {
+      const imageUrl = record.fields.Image[0].url;
+      return res.status(200).json({
+        id: id,
+        url: imageUrl,
+        thumbnails: record.fields.Image[0].thumbnails || {},
+        filename: record.fields.Image[0].filename || `image_${id}.png`,
+        size: record.fields.Image[0].size,
+        type: record.fields.Image[0].type,
+        source: 'airtable'
+      });
+    }
     
-    // Tenemos dos opciones:
-    // 1. Redirigir a la URL de la imagen (más simple, pero podría haber problemas de CORS)
-    // return res.redirect(imageUrl);
+    // También verificar si hay una URL externa
+    if (record.fields.ExternalURL) {
+      return res.status(200).json({
+        id: id,
+        url: record.fields.ExternalURL,
+        source: 'external'
+      });
+    }
     
-    // 2. Obtener la imagen y devolverla (más control pero más overhead)
-    // Para evitar problemas de CORS, vamos a devolver la URL para que el cliente la use directamente
-    return res.status(200).json({
-      id: id,
-      url: imageUrl,
-      thumbnails: record.fields.Image[0].thumbnails || {},
-      filename: record.fields.Image[0].filename || `image_${id}.png`,
-      size: record.fields.Image[0].size,
-      type: record.fields.Image[0].type
-    });
+    // Si no se encontró ninguna imagen, devolver error
+    return res.status(404).json({ error: 'No image URL found for this ID' });
     
   } catch (error) {
     console.error('Error getting image:', error);

@@ -217,18 +217,28 @@
                 responseDiv.style.display = 'block';
                 responseDiv.innerHTML = 'Subiendo imagen a Airtable...';
                 
-                // Preparar datos para enviar
-                const requestData = {
-                    imageData: imageData
-                };
-                
                 // Enviar al API
-                const response = await fetch('https://quickbooks-backend.vercel.app/api/tests-image-debug', {
+                const response = await fetch('https://quickbooks-backend.vercel.app/api/tests', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(requestData)
+                    body: JSON.stringify({
+                        name: 'Test de imagen ' + new Date().toISOString(),
+                        description: 'Prueba de carga de imagen',
+                        questions: [
+                            {
+                                id: 'q1',
+                                text: 'Esta es una pregunta de prueba con imagen',
+                                image: imageData,
+                                options: [
+                                    { id: 'a', text: 'Opción A' },
+                                    { id: 'b', text: 'Opción B' }
+                                ],
+                                correctAnswer: 'a'
+                            }
+                        ]
+                    })
                 });
                 
                 // Intentar obtener la respuesta como JSON
@@ -242,19 +252,23 @@
                 }
                 
                 // Mostrar resultado
-                if (response.ok && result.success) {
+                if (response.ok) {
+                    const imageUrl = result.questions?.[0]?.image;
+                    const imageId = result.questions?.[0]?.imageId;
+                    
                     responseDiv.innerHTML = `
-                        <div class="success">¡Imagen subida exitosamente!</div>
-                        <div><strong>ID:</strong> ${result.imageId}</div>
-                        <div><strong>URL:</strong> <a href="${result.url}" target="_blank">${result.url}</a></div>
-                        <div><strong>Tipo:</strong> ${result.type}</div>
-                        <div><strong>Tamaño:</strong> ${formatFileSize(result.size || 0)}</div>
-                        <div><img src="${result.url}" alt="Imagen subida" style="max-width: 300px; margin-top: 10px;"></div>
+                        <div class="success">¡Test creado exitosamente con imagen!</div>
+                        <div><strong>ID del Test:</strong> ${result.id}</div>
+                        <div><strong>Nombre:</strong> ${result.name}</div>
+                        ${imageUrl ? `<div><strong>URL de la imagen:</strong> <a href="${imageUrl}" target="_blank">${imageUrl}</a></div>` : ''}
+                        ${imageId ? `<div><strong>ID de la imagen:</strong> ${imageId}</div>` : ''}
+                        <div><strong>Detalles completos:</strong></div>
                         <pre>${JSON.stringify(result, null, 2)}</pre>
                     `;
                 } else {
                     responseDiv.innerHTML = `
-                        <div class="error">Error: ${result.error || 'Desconocido'}</div>
+                        <div class="error">Error: ${result.error || response.statusText}</div>
+                        <div><strong>Detalles:</strong> ${result.details || 'No hay detalles disponibles'}</div>
                         <pre>${JSON.stringify(result, null, 2)}</pre>
                     `;
                 }

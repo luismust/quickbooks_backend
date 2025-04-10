@@ -4,7 +4,6 @@
   "outputDirectory": ".",
   "public": true,
   "routes": [
-    { "src": "/(.*\\.html)", "dest": "/$1" },
     { "handle": "filesystem" },
     {
       "src": "/api/(.*)",
@@ -19,7 +18,6 @@
     { "src": "/api/tests", "dest": "/api/tests.js", "methods": ["GET", "POST", "OPTIONS"] },
     { "src": "/api/images", "dest": "/api/images.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/api/airtable-check", "dest": "/api/airtable-check.js", "methods": ["GET", "OPTIONS"] },
-    { "src": "/api/tests-image-debug", "dest": "/api/tests-image-debug.js", "methods": ["GET", "POST", "OPTIONS"] },
     { "src": "/", "dest": "/api/index.js" },
     { "src": "/(.*)", "status": 404, "dest": "/api/index.js" }
   ],
@@ -35,10 +33,6 @@
     "api/airtable-check.js": {
       "memory": 512,
       "maxDuration": 5
-    },
-    "api/tests-image-debug.js": {
-      "memory": 1024,
-      "maxDuration": 30
     },
     "api/index.js": {
       "memory": 512,

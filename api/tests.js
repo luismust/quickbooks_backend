@@ -376,7 +376,7 @@ async function handlePost(req, res) {
   }
 }
 
-// Función para guardar imágenes en Airtable como attachments
+// Función para guardar una imagen usando Vercel Blob Storage
 async function saveImageToAirtable(base, imageId, imageData) {
   try {
     // Si falta algún dato necesario, simplemente devolver una URL vacía
@@ -386,8 +386,6 @@ async function saveImageToAirtable(base, imageId, imageData) {
     }
 
     const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
-    const baseId = process.env.AIRTABLE_BASE_ID;
-    const apiKey = process.env.AIRTABLE_API_KEY;
     
     // Extraer información de la imagen base64
     let fileName, mimeType, base64Content;
@@ -420,10 +418,29 @@ async function saveImageToAirtable(base, imageId, imageData) {
     }
     
     try {
-      // NUEVO ENFOQUE: Crear el registro primero y luego subir la imagen
-      console.log(`Creating Airtable record for image ${imageId}`);
+      // NUEVO ENFOQUE: Usar Vercel Blob Storage
+      const { put } = require('@vercel/blob');
       
-      // Paso 1: Verificar si ya existe esta imagen
+      console.log(`Uploading image ${imageId} to Vercel Blob Storage`);
+      
+      // Convertir base64 a buffer para upload
+      const buffer = Buffer.from(base64Content, 'base64');
+      
+      // Subir a Vercel Blob Storage
+      const blob = await put(fileName, buffer, {
+        contentType: mimeType,
+        access: 'public', // Hacemos que sea accesible públicamente
+      });
+      
+      if (!blob || !blob.url) {
+        console.error('Failed to upload to Vercel Blob Storage');
+        return '';
+      }
+      
+      console.log(`Successfully uploaded image to Vercel Blob: ${blob.url}`);
+      
+      // Paso 2: Crear o actualizar el registro en Airtable con la URL del blob
+      // Primero verificar si ya existe este registro
       const existingRecords = await base(tableImages)
         .select({
           filterByFormula: `{ID}="${imageId}"`,
@@ -431,90 +448,53 @@ async function saveImageToAirtable(base, imageId, imageData) {
         })
         .all();
       
-      let recordId;
+      let record;
       
-      // Paso 2: Crear o actualizar el registro
       if (existingRecords.length > 0) {
-        recordId = existingRecords[0].id;
-        console.log(`Found existing record for image ${imageId} with ID: ${recordId}`);
+        // Actualizar registro existente con la URL del blob
+        const recordId = existingRecords[0].id;
+        console.log(`Updating existing record for image ${imageId} with Blob URL`);
+        
+        record = await base(tableImages).update(recordId, {
+          BlobURL: blob.url,
+          Size: blob.size,
+          ContentType: blob.contentType,
+          Timestamp: new Date().toISOString()
+        });
       } else {
-        // Crear nuevo registro solo con el ID
-        const newRecords = await base(tableImages).create([
+        // Crear nuevo registro con la URL del blob
+        console.log(`Creating new record for image ${imageId} with Blob URL`);
+        
+        const records = await base(tableImages).create([
           {
             fields: {
-              ID: imageId
+              ID: imageId,
+              BlobURL: blob.url,
+              Size: blob.size,
+              ContentType: blob.contentType,
+              Timestamp: new Date().toISOString()
             }
           }
         ]);
         
-        if (!newRecords || newRecords.length === 0) {
-          console.error('Failed to create initial record for image');
-          return '';
+        if (!records || records.length === 0) {
+          console.error('Failed to create record in Airtable');
+          return blob.url; // Devolvemos la URL del blob aunque falle el registro en Airtable
         }
         
-        recordId = newRecords[0].id;
-        console.log(`Created new record for image ${imageId} with ID: ${recordId}`);
+        record = records[0];
       }
       
-      // Paso 3: Subir la imagen usando la API REST directamente
-      // Convertir base64 a buffer
-      const buffer = Buffer.from(base64Content, 'base64');
+      console.log(`Successfully recorded image ${imageId} in Airtable with Blob URL`);
+      return blob.url;
       
-      // Crear FormData para la subida
-      const formData = new FormData();
-      formData.append('file', buffer, {
-        filename: fileName,
-        contentType: mimeType
-      });
-      
-      // URL del endpoint para subir archivos a Airtable
-      const uploadUrl = `https://api.airtable.com/v0/${baseId}/${tableImages}/${recordId}/Image`;
-      
-      // Realizar la solicitud para subir el archivo
-      console.log(`Uploading image file to Airtable for record ${recordId}`);
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`
-          // FormData establece su propio Content-Type con el boundary
-        },
-        body: formData
-      });
-      
-      // Verificar respuesta
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error(`Error uploading image: ${uploadResponse.status}`, errorText);
-        return '';
-      }
-      
-      // Paso 4: Obtener el registro actualizado para verificar la URL
-      const updatedRecord = await base(tableImages).find(recordId);
-      
-      // Verificar si se guardó la imagen
-      if (!updatedRecord.fields.Image || 
-          !updatedRecord.fields.Image[0] || 
-          !updatedRecord.fields.Image[0].url) {
-        console.error('Image uploaded but URL not found in record');
-        return '';
-      }
-      
-      // Obtener la URL de la imagen
-      const attachmentUrl = updatedRecord.fields.Image[0].url;
-      console.log(`Successfully uploaded image ${imageId} to Airtable, URL: ${attachmentUrl.substring(0, 50)}...`);
-      
-      return attachmentUrl;
     } catch (uploadError) {
       console.error(`Failed to upload image ${imageId}:`, uploadError.message);
-      if (uploadError.response) {
-        console.error('Error response:', JSON.stringify(uploadError.response.data || {}).substring(0, 200));
-      }
       // No propagar el error, simplemente devolver URL vacía
       return '';
     }
   } catch (error) {
-    console.error(`Error in saveImageToAirtable for ${imageId}:`, error);
-    // No propagar el error, simplemente devolver URL vacía
+    console.error('Error in saveImageToAirtable:', error);
     return '';
   }
 }
@@ -523,7 +503,7 @@ async function saveImageToAirtable(base, imageId, imageData) {
 module.exports = async (req, res) => {
   // Para todas las solicitudes, establecer cabeceras CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
