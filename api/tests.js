@@ -75,14 +75,30 @@ async function handleGet(req, res) {
           if (question.image) {
             // Si ya es una URL completa de http, dejarla como está
             if (question.image.startsWith('http')) {
+              console.log(`Question ${question.id}: Using direct image URL: ${question.image.substring(0, 70)}...`);
               processedQuestion.image = question.image;
             } 
             // Si tenemos un ID de imagen, crear una URL a nuestro endpoint
             else if (question.imageId) {
               const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
-              processedQuestion.image = `${apiUrl}/api/images?id=${question.imageId}`;
-            } 
-            // Si es null u otro valor, mantenerlo
+              // Usar redirección directa para que el frontend reciba la imagen directamente
+              const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
+              console.log(`Question ${question.id}: Created image URL from ID ${question.imageId}: ${imageUrl}`);
+              processedQuestion.image = imageUrl;
+            }
+            // Si es null u otro valor, mantenerlo pero loggear
+            else {
+              console.log(`Question ${question.id}: No valid image reference found, value: ${question.image}`);
+            }
+          } else if (question.imageId) {
+            // Si no hay imagen pero sí hay imageId, también crear la URL
+            const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
+            // Usar redirección directa para que el frontend reciba la imagen directamente
+            const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
+            console.log(`Question ${question.id}: Created image URL from ID ${question.imageId} (no direct image): ${imageUrl}`);
+            processedQuestion.image = imageUrl;
+          } else {
+            console.log(`Question ${question.id}: No image data available`);
           }
           
           return processedQuestion;

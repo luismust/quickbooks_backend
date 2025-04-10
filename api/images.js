@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
   
   try {
     // Obtener el ID de la imagen de la consulta
-    const { id } = req.query;
+    const { id, redirect } = req.query;
     
     if (!id) {
       return res.status(400).json({ error: 'Image ID is required' });
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
     const base = getAirtableBase();
     
     // Buscar la imagen por ID
-    console.log(`Looking for image with ID: ${id}`);
+    console.log(`Looking for image with ID: ${id}, redirect=${redirect}`);
     const records = await base(tableImages).select({
       filterByFormula: `{ID}="${id}"`,
       maxRecords: 1
@@ -64,10 +64,18 @@ module.exports = async (req, res) => {
     
     // Obtener el registro y la URL de la imagen
     const record = records[0];
+    let imageUrl = null;
     
     // Primero verificar si tenemos una URL de Blob Storage
     if (record.fields.BlobURL) {
-      const imageUrl = record.fields.BlobURL;
+      imageUrl = record.fields.BlobURL;
+      
+      // Si se solicita redirección, redireccionar directamente
+      if (redirect === '1' || redirect === 'true') {
+        console.log(`Redirecting to Blob URL: ${imageUrl}`);
+        return res.redirect(imageUrl);
+      }
+      
       return res.status(200).json({
         id: id,
         url: imageUrl,
@@ -79,7 +87,14 @@ module.exports = async (req, res) => {
     
     // Como respaldo, verificar si hay una imagen en el campo Image de Airtable
     if (record.fields.Image && record.fields.Image[0] && record.fields.Image[0].url) {
-      const imageUrl = record.fields.Image[0].url;
+      imageUrl = record.fields.Image[0].url;
+      
+      // Si se solicita redirección, redireccionar directamente
+      if (redirect === '1' || redirect === 'true') {
+        console.log(`Redirecting to Airtable URL: ${imageUrl}`);
+        return res.redirect(imageUrl);
+      }
+      
       return res.status(200).json({
         id: id,
         url: imageUrl,
@@ -93,9 +108,17 @@ module.exports = async (req, res) => {
     
     // También verificar si hay una URL externa
     if (record.fields.ExternalURL) {
+      imageUrl = record.fields.ExternalURL;
+      
+      // Si se solicita redirección, redireccionar directamente
+      if (redirect === '1' || redirect === 'true') {
+        console.log(`Redirecting to External URL: ${imageUrl}`);
+        return res.redirect(imageUrl);
+      }
+      
       return res.status(200).json({
         id: id,
-        url: record.fields.ExternalURL,
+        url: imageUrl,
         source: 'external'
       });
     }
