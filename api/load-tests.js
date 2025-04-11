@@ -31,6 +31,19 @@ const FIELDS = {
   FAILING_MESSAGE: 'failing_message'
 };
 
+// Función para asegurar que una URL tenga el protocolo https://
+function ensureHttpsProtocol(url) {
+  if (!url) return url;
+  
+  // Si ya tiene protocolo, devolverlo tal cual
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // Añadir https:// al inicio
+  return `https://${url}`;
+}
+
 // Manejador principal
 module.exports = async (req, res) => {
   // Configuración manual de CORS
@@ -95,7 +108,10 @@ module.exports = async (req, res) => {
             } 
             // Si tenemos un ID de imagen, crear una URL a nuestro endpoint
             else if (question.imageId) {
-              const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
+              // Usar una URL completa (incluir https://)
+              let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+              apiUrl = ensureHttpsProtocol(apiUrl);
+              
               // Usar redirección directa para que el frontend reciba la imagen directamente
               const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
               processedQuestion.image = imageUrl;
@@ -107,7 +123,9 @@ module.exports = async (req, res) => {
             }
           } else if (question.imageId) {
             // Si no hay imagen pero sí hay imageId, también crear la URL
-            const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
+            let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+            apiUrl = ensureHttpsProtocol(apiUrl);
+            
             // Usar redirección directa para que el frontend reciba la imagen directamente
             const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
             processedQuestion.image = imageUrl;

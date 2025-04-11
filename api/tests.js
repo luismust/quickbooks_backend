@@ -34,6 +34,19 @@ const getAirtableBase = () => {
   }).base(process.env.AIRTABLE_BASE_ID);
 };
 
+// Función para asegurar que una URL tenga el protocolo https://
+function ensureHttpsProtocol(url) {
+  if (!url) return url;
+  
+  // Si ya tiene protocolo, devolverlo tal cual
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // Añadir https:// al inicio
+  return `https://${url}`;
+}
+
 // Manejador de la ruta GET /api/tests
 async function handleGet(req, res) {
   try {
@@ -80,7 +93,9 @@ async function handleGet(req, res) {
             } 
             // Si tenemos un ID de imagen, crear una URL a nuestro endpoint
             else if (question.imageId) {
-              const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
+              let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+              apiUrl = ensureHttpsProtocol(apiUrl);
+              
               // Usar redirección directa para que el frontend reciba la imagen directamente
               const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
               console.log(`Question ${question.id}: Created image URL from ID ${question.imageId}: ${imageUrl}`);
@@ -92,7 +107,9 @@ async function handleGet(req, res) {
             }
           } else if (question.imageId) {
             // Si no hay imagen pero sí hay imageId, también crear la URL
-            const apiUrl = process.env.VERCEL_URL || 'https://quickbooks-backend.vercel.app';
+            let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+            apiUrl = ensureHttpsProtocol(apiUrl);
+            
             // Usar redirección directa para que el frontend reciba la imagen directamente
             const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
             console.log(`Question ${question.id}: Created image URL from ID ${question.imageId} (no direct image): ${imageUrl}`);
