@@ -466,14 +466,30 @@ async function saveImageToBlob(imageId, imageData) {
 // Manejador para la ruta DELETE /api/tests/:id
 async function handleDelete(req, res) {
   try {
-    // Extraer el ID del test de la URL (formato: /api/tests/ID)
-    const urlParts = req.url.split('/');
-    let testId = urlParts[urlParts.length - 1];
+    console.log(`Processing DELETE with URL: ${req.url}`);
     
-    // Si la URL contiene parámetros de consulta, extraer solo el ID
-    if (testId.includes('?')) {
-      testId = testId.split('?')[0];
+    // Extraer el ID del test de la URL
+    let testId;
+    
+    // Intenta diferentes patrones para extraer el ID
+    if (req.url.includes('/api/tests/')) {
+      // Formato: /api/tests/ID o /api/tests/ID?param=value
+      const urlParts = req.url.split('/api/tests/')[1];
+      testId = urlParts.split('?')[0]; // Eliminar parámetros de consulta si existen
+    } else if (req.url.includes('/tests/')) {
+      // Formato: /tests/ID o /tests/ID?param=value (desde el frontend)
+      const urlParts = req.url.split('/tests/')[1];
+      testId = urlParts.split('?')[0]; // Eliminar parámetros de consulta si existen
+    } else if (req.query && req.query.id) {
+      // Formato: /api/tests?id=ID
+      testId = req.query.id;
+    } else {
+      // Último intento: dividir por /
+      const urlParts = req.url.split('/');
+      testId = urlParts[urlParts.length - 1].split('?')[0];
     }
+    
+    console.log(`Extracted testId: ${testId}`);
     
     if (!testId) {
       return res.status(400).json({ error: 'Test ID is required' });
@@ -523,15 +539,16 @@ module.exports = async (req, res) => {
   // Para todas las solicitudes, establecer cabeceras CORS
   const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
   
+  // Configurar CORS para permitir el origen específico
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');  // Permitir cualquier origen
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version'
   );
   
-  // Responder inmediatamente a las solicitudes OPTIONS
+  // Responder inmediatamente a las solicitudes OPTIONS (preflight)
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -545,6 +562,17 @@ module.exports = async (req, res) => {
         } catch (error) {
           return res.status(400).json({ error: 'Invalid JSON' });
         }
+      }
+    }
+    
+    // Determinar si es una solicitud DELETE con un ID específico
+    if (req.method === 'DELETE') {
+      // Loggear la URL completa para depuración
+      console.log(`Processing DELETE request for URL: ${req.url}`);
+      
+      // La ruta DELETE podría venir como /api/tests/ID o como /tests/ID
+      if (req.url.includes('/tests/') || req.url.includes('/api/tests/')) {
+        return await handleDelete(req, res);
       }
     }
     
