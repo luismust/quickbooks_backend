@@ -1,6 +1,15 @@
 // api/save-test.js - Un endpoint especial para guardar tests
 const Airtable = require('airtable');
-const { put } = require('@vercel/blob');
+let blobModule;
+
+try {
+  // Intentar importar @vercel/blob y registrar cualquier error
+  blobModule = require('@vercel/blob');
+  console.log('[SAVE-TEST] Successfully imported @vercel/blob module');
+} catch (importError) {
+  console.error('[SAVE-TEST] Error importing @vercel/blob:', importError);
+  console.error('[SAVE-TEST] Stack trace:', importError.stack);
+}
 
 // Configurar Airtable
 const getAirtableBase = () => {
@@ -28,19 +37,26 @@ async function saveImageToBlob(imageId, imageData) {
   try {
     // Si falta algún dato necesario, simplemente devolver una URL vacía
     if (!imageId || !imageData) {
-      console.log('Skipping image upload due to missing data');
+      console.log('[SAVE-TEST] Skipping image upload due to missing data');
       return '';
     }
     
+    console.log(`[SAVE-TEST] Processing image ${imageId}, data length: ${imageData ? imageData.length : 0}`);
+    
     // Extraer información de la imagen base64
     let fileName, mimeType, base64Content;
+    
+    if (typeof imageData !== 'string') {
+      console.warn(`[SAVE-TEST] Image data for ${imageId} is not a string, type: ${typeof imageData}`);
+      return '';
+    }
     
     if (imageData.startsWith('data:')) {
       // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
       const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
       
       if (!matches || matches.length !== 3) {
-        console.warn('Invalid base64 image format, skipping upload');
+        console.warn(`[SAVE-TEST] Invalid base64 image format for ${imageId}, matches: ${matches ? matches.length : 0}`);
         return '';
       }
       
@@ -50,46 +66,63 @@ async function saveImageToBlob(imageId, imageData) {
       // Generar un nombre de archivo basado en el tipo MIME
       const extension = mimeType.split('/')[1] || 'jpg';
       fileName = `image_${imageId}.${extension}`;
+      
+      console.log(`[SAVE-TEST] Successfully extracted image data for ${imageId}, mime: ${mimeType}, filename: ${fileName}`);
     } else {
       // Si no es data:, simplemente saltarlo
-      console.warn('Unsupported image format, skipping upload');
+      console.warn(`[SAVE-TEST] Unsupported image format for ${imageId}, starts with: ${imageData.substring(0, 10)}...`);
       return '';
     }
     
     // Validar que el contenido base64 es válido
     if (!base64Content || base64Content.length < 100) {
-      console.warn('Base64 content too short or invalid');
+      console.warn(`[SAVE-TEST] Base64 content too short or invalid for ${imageId}, length: ${base64Content ? base64Content.length : 0}`);
       return '';
     }
     
     try {
+      // Verificar si el módulo de blob está disponible
+      if (!blobModule || !blobModule.put) {
+        console.error('[SAVE-TEST] @vercel/blob module or put function not available');
+        return '';
+      }
+      
       // Usar Vercel Blob Storage
-      console.log(`Uploading image ${imageId} to Vercel Blob Storage`);
+      console.log(`[SAVE-TEST] Uploading image ${imageId} to Vercel Blob Storage`);
       
       // Convertir base64 a buffer para upload
       const buffer = Buffer.from(base64Content, 'base64');
       
-      // Subir a Vercel Blob Storage
-      const blob = await put(fileName, buffer, {
+      if (!buffer || buffer.length === 0) {
+        console.error(`[SAVE-TEST] Failed to create buffer from base64 for ${imageId}`);
+        return '';
+      }
+      
+      console.log(`[SAVE-TEST] Created buffer of size ${buffer.length} bytes for ${imageId}`);
+      
+      // Subir a Vercel Blob Storage usando el módulo importado
+      const blob = await blobModule.put(fileName, buffer, {
         contentType: mimeType,
         access: 'public', // Hacemos que sea accesible públicamente
       });
       
       if (!blob || !blob.url) {
-        console.error('Failed to upload to Vercel Blob Storage');
+        console.error(`[SAVE-TEST] Failed to upload to Vercel Blob Storage for ${imageId}, no blob URL returned`);
         return '';
       }
       
-      console.log(`Successfully uploaded image to Vercel Blob: ${blob.url}`);
-      return blob.url;
+      console.log(`[SAVE-TEST] Successfully uploaded image to Vercel Blob: ${blob.url}`);
       
+      return blob.url;
     } catch (uploadError) {
-      console.error(`Failed to upload image ${imageId}:`, uploadError.message);
+      console.error(`[SAVE-TEST] Failed to upload image ${imageId}:`, uploadError);
+      console.error(`[SAVE-TEST] Stack trace:`, uploadError.stack);
       // No propagar el error, simplemente devolver URL vacía
       return '';
     }
   } catch (error) {
-    console.error('Error in saveImageToBlob:', error);
+    console.error('[SAVE-TEST] Error in saveImageToBlob:', error);
+    console.error('[SAVE-TEST] Stack trace:', error.stack);
     return '';
   }
 }
@@ -163,47 +196,61 @@ module.exports = async (req, res) => {
       // Manejar imágenes según su tipo
       if (q.image) {
         try {
-          if (q.image.startsWith('data:')) {
-            // Generar un ID único para la imagen
+          console.log(`[SAVE-TEST] Processing image for question ${q.id || 'unknown'}, type: ${typeof q.image}`);
+          
+          // Si tenemos _imageData explícito, usarlo con prioridad
+          if (q._imageData && typeof q._imageData === 'string' && q._imageData.startsWith('data:')) {
+            console.log(`[SAVE-TEST] Using explicit _imageData field for question ${q.id || 'unknown'}`);
+            const imageId = q.id || generateUniqueId();
+            simplifiedQuestion.imageId = imageId;
+            simplifiedQuestion.image = null;
+            
+            imagesToProcess.push({
+              questionId: q.id,
+              imageId: imageId,
+              imageData: q._imageData
+            });
+          }
+          // Si es base64 directo en image
+          else if (q.image.startsWith('data:')) {
+            console.log(`[SAVE-TEST] Image is data URL, processing for question ${q.id || 'unknown'}`);
             const imageId = q.id || generateUniqueId();
             
-            // Guardar la referencia en la pregunta
-            simplifiedQuestion.imageId = imageId; // Guardar el ID para referencias futuras
-            simplifiedQuestion.image = null; // Vaciar el campo de imagen para no almacenar datos grandes
+            simplifiedQuestion.imageId = imageId;
+            simplifiedQuestion.image = null;
             
-            // Añadir a la lista para procesar después
             imagesToProcess.push({
               questionId: q.id,
               imageId: imageId,
               imageData: q.image
             });
           }
-          else if (q.image.startsWith('blob:')) {
-            if (q._imageData) {
-              const imageId = q.id || generateUniqueId();
-              simplifiedQuestion.imageId = imageId;
-              simplifiedQuestion.image = null;
-              
-              // Añadir a la lista para procesar después
-              imagesToProcess.push({
-                questionId: q.id,
-                imageId: imageId,
-                imageData: q._imageData
-              });
-            } else {
-              console.warn(`Question ${q.id} has blob URL but no _imageData, skipping image`);
-              simplifiedQuestion.image = null;
-            }
-          } else if (q.image.startsWith('http')) {
-            // Ya es una URL, mantenerla como está
+          // Si es blob URL pero tenemos base64 en _localFile
+          else if (q.image.startsWith('blob:') && q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
+            console.log(`[SAVE-TEST] Image is blob URL with localFile, using localFile for question ${q.id || 'unknown'}`);
+            const imageId = q.id || generateUniqueId();
+            
+            simplifiedQuestion.imageId = imageId;
+            simplifiedQuestion.image = null;
+            
+            imagesToProcess.push({
+              questionId: q.id,
+              imageId: imageId,
+              imageData: q._localFile
+            });
+          }
+          // Si es HTTP URL, mantenerla
+          else if (q.image.startsWith('http')) {
+            console.log(`[SAVE-TEST] Image is HTTP URL, keeping as is for question ${q.id || 'unknown'}`);
             simplifiedQuestion.image = q.image;
-          } else {
-            // No es un formato reconocido
-            console.warn(`Question ${q.id} has unrecognized image format: ${q.image.substring(0, 20)}...`);
+          }
+          // Otros casos no manejados
+          else {
+            console.warn(`[SAVE-TEST] Question ${q.id || 'unknown'} has unrecognized image format: ${typeof q.image === 'string' ? q.image.substring(0, 20) + '...' : typeof q.image}`);
             simplifiedQuestion.image = null;
           }
         } catch (imgError) {
-          console.error(`Error processing image for question ${q.id}:`, imgError);
+          console.error(`[SAVE-TEST] Error processing image for question ${q.id || 'unknown'}:`, imgError);
           simplifiedQuestion.image = null;
         }
       }
@@ -283,7 +330,12 @@ module.exports = async (req, res) => {
     
     // Intentar procesar imágenes en segundo plano, pero no bloquear la respuesta
     if (imagesToProcess.length > 0) {
-      console.log(`[SAVE-TEST] Processing ${imagesToProcess.length} images in background...`);
+      console.log(`[SAVE-TEST] Starting background processing of ${imagesToProcess.length} images...`);
+      
+      // Detallar las imágenes que se van a procesar
+      imagesToProcess.forEach((img, index) => {
+        console.log(`[SAVE-TEST] Image ${index + 1}/${imagesToProcess.length}: questionId=${img.questionId}, imageId=${img.imageId}, dataType=${typeof img.imageData}, dataLength=${img.imageData ? img.imageData.length : 0}`);
+      });
       
       // Esto se ejecutará en segundo plano y no bloqueará la respuesta
       (async () => {
@@ -291,35 +343,56 @@ module.exports = async (req, res) => {
           const imageResults = [];
           for (const img of imagesToProcess) {
             try {
+              console.log(`[SAVE-TEST:BACKGROUND] Processing image for questionId=${img.questionId}, imageId=${img.imageId}`);
+              
+              if (!img.imageData || typeof img.imageData !== 'string') {
+                console.error(`[SAVE-TEST:BACKGROUND] Invalid image data for imageId=${img.imageId}, type=${typeof img.imageData}`);
+                continue;
+              }
+              
               const imageUrl = await saveImageToBlob(img.imageId, img.imageData);
               if (imageUrl) {
+                console.log(`[SAVE-TEST:BACKGROUND] Successfully uploaded image to ${imageUrl}`);
                 imageResults.push({
                   questionId: img.questionId,
                   imageId: img.imageId,
                   url: imageUrl
                 });
+              } else {
+                console.error(`[SAVE-TEST:BACKGROUND] Failed to upload image for imageId=${img.imageId}`);
               }
             } catch (imgError) {
-              console.error(`[SAVE-TEST] Failed to save image ${img.imageId}:`, imgError);
+              console.error(`[SAVE-TEST:BACKGROUND] Failed to save image ${img.imageId}:`, imgError);
+              console.error(`[SAVE-TEST:BACKGROUND] Stack trace:`, imgError.stack);
               // Continuar con la siguiente imagen
             }
           }
           
           // Si tenemos resultados de imágenes, actualizar el test con sus URLs
           if (imageResults.length > 0) {
-            console.log(`[SAVE-TEST] Successfully processed ${imageResults.length} images, updating test record...`);
+            console.log(`[SAVE-TEST:BACKGROUND] Successfully processed ${imageResults.length}/${imagesToProcess.length} images, updating test record...`);
+            
             try {
               // Obtener el test recién creado
               const testRecord = await base(tableName).find(testId);
               const updatedQuestions = JSON.parse(testRecord.fields[FIELDS.QUESTIONS] || '[]');
               
               // Actualizar las URLs de las imágenes
+              let updatedCount = 0;
               updatedQuestions.forEach(q => {
-                const imageResult = imageResults.find(img => img.questionId === q.id || img.imageId === q.imageId);
+                const imageResult = imageResults.find(img => 
+                  (img.questionId && img.questionId === q.id) || 
+                  (img.imageId && img.imageId === q.imageId)
+                );
+                
                 if (imageResult) {
+                  updatedCount++;
+                  console.log(`[SAVE-TEST:BACKGROUND] Updating question ${q.id} with image URL: ${imageResult.url}`);
                   q.image = imageResult.url;
                 }
               });
+              
+              console.log(`[SAVE-TEST:BACKGROUND] Updated ${updatedCount} questions with image URLs`);
               
               // Guardar las preguntas actualizadas
               await base(tableName).update(testId, {
@@ -328,17 +401,19 @@ module.exports = async (req, res) => {
                 }
               });
               
-              console.log('[SAVE-TEST] Test record updated with image URLs');
+              console.log(`[SAVE-TEST:BACKGROUND] Test record ${testId} updated with image URLs`);
             } catch (updateError) {
-              console.error('[SAVE-TEST] Failed to update test with image URLs:', updateError);
+              console.error('[SAVE-TEST:BACKGROUND] Failed to update test with image URLs:', updateError);
+              console.error('[SAVE-TEST:BACKGROUND] Stack trace:', updateError.stack);
             }
           } else {
-            console.warn('[SAVE-TEST] No images were successfully processed');
+            console.warn(`[SAVE-TEST:BACKGROUND] No images were successfully processed out of ${imagesToProcess.length} attempts`);
           }
           
-          console.log('[SAVE-TEST] Background image processing completed');
+          console.log('[SAVE-TEST:BACKGROUND] Background image processing completed');
         } catch (bgError) {
-          console.error('[SAVE-TEST] Error in background image processing:', bgError);
+          console.error('[SAVE-TEST:BACKGROUND] Error in background image processing:', bgError);
+          console.error('[SAVE-TEST:BACKGROUND] Stack trace:', bgError.stack);
         }
       })();
     }

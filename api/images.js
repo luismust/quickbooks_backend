@@ -1,22 +1,5 @@
 // api/images.js - Endpoint para obtener imágenes de Vercel Blob Storage
-const Airtable = require('airtable');
-const { list } = require('@vercel/blob');
-
-// Configurar Airtable
-const getAirtableBase = () => {
-  if (!process.env.AIRTABLE_API_KEY) {
-    throw new Error('AIRTABLE_API_KEY is not defined');
-  }
-  
-  if (!process.env.AIRTABLE_BASE_ID) {
-    throw new Error('AIRTABLE_BASE_ID is not defined');
-  }
-  
-  return new Airtable({ 
-    apiKey: process.env.AIRTABLE_API_KEY,
-    endpointUrl: 'https://api.airtable.com'
-  }).base(process.env.AIRTABLE_BASE_ID);
-};
+const { list, get } = require('@vercel/blob');
 
 // Manejador para el endpoint de imágenes
 module.exports = async (req, res) => {
@@ -46,88 +29,45 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Image ID is required' });
     }
     
-    // Configurar tabla de imágenes
-    const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
-    const base = getAirtableBase();
+    console.log(`[IMAGES] Looking for image with ID: ${id}, redirect=${redirect}`);
     
-    // Buscar la imagen por ID
-    console.log(`Looking for image with ID: ${id}, redirect=${redirect}`);
-    const records = await base(tableImages).select({
-      filterByFormula: `{ID}="${id}"`,
-      maxRecords: 1
-    }).all();
+    // Formato esperado del nombre de archivo
+    const imagePattern = `image_${id}.*`;
     
-    if (!records || records.length === 0) {
-      console.warn(`No image found with ID: ${id}`);
+    // Listar archivos en Vercel Blob que coincidan con el patrón
+    const blobs = await list({
+      prefix: `image_${id}`,
+      limit: 1
+    });
+    
+    console.log(`[IMAGES] Found ${blobs.blobs.length} matching blobs for ID: ${id}`);
+    
+    if (!blobs.blobs || blobs.blobs.length === 0) {
+      console.warn(`[IMAGES] No image found with ID: ${id}`);
       return res.status(404).json({ error: 'Image not found' });
     }
     
-    // Obtener el registro y la URL de la imagen
-    const record = records[0];
-    let imageUrl = null;
+    // Obtener el primer blob que coincide (debería ser único por ID)
+    const blob = blobs.blobs[0];
+    const imageUrl = blob.url;
     
-    // Primero verificar si tenemos una URL de Blob Storage
-    if (record.fields.BlobURL) {
-      imageUrl = record.fields.BlobURL;
-      
-      // Si se solicita redirección, redireccionar directamente
-      if (redirect === '1' || redirect === 'true') {
-        console.log(`Redirecting to Blob URL: ${imageUrl}`);
-        return res.redirect(imageUrl);
-      }
-      
-      return res.status(200).json({
-        id: id,
-        url: imageUrl,
-        size: record.fields.Size,
-        type: record.fields.ContentType,
-        source: 'vercel-blob'
-      });
+    // Si se solicita redirección, redireccionar directamente
+    if (redirect === '1' || redirect === 'true') {
+      console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}`);
+      return res.redirect(imageUrl);
     }
     
-    // Como respaldo, verificar si hay una imagen en el campo Image de Airtable
-    if (record.fields.Image && record.fields.Image[0] && record.fields.Image[0].url) {
-      imageUrl = record.fields.Image[0].url;
-      
-      // Si se solicita redirección, redireccionar directamente
-      if (redirect === '1' || redirect === 'true') {
-        console.log(`Redirecting to Airtable URL: ${imageUrl}`);
-        return res.redirect(imageUrl);
-      }
-      
-      return res.status(200).json({
-        id: id,
-        url: imageUrl,
-        thumbnails: record.fields.Image[0].thumbnails || {},
-        filename: record.fields.Image[0].filename || `image_${id}.png`,
-        size: record.fields.Image[0].size,
-        type: record.fields.Image[0].type,
-        source: 'airtable'
-      });
-    }
-    
-    // También verificar si hay una URL externa
-    if (record.fields.ExternalURL) {
-      imageUrl = record.fields.ExternalURL;
-      
-      // Si se solicita redirección, redireccionar directamente
-      if (redirect === '1' || redirect === 'true') {
-        console.log(`Redirecting to External URL: ${imageUrl}`);
-        return res.redirect(imageUrl);
-      }
-      
-      return res.status(200).json({
-        id: id,
-        url: imageUrl,
-        source: 'external'
-      });
-    }
-    
-    // Si no se encontró ninguna imagen, devolver error
-    return res.status(404).json({ error: 'No image URL found for this ID' });
+    return res.status(200).json({
+      id: id,
+      url: imageUrl,
+      size: blob.size,
+      type: blob.contentType || 'image/jpeg',
+      source: 'vercel-blob',
+      uploadedAt: blob.uploadedAt
+    });
     
   } catch (error) {
-    console.error('Error getting image:', error);
+    console.error('[IMAGES] Error getting image:', error);
     return res.status(500).json({ 
       error: 'Failed to get image',
       details: error.message

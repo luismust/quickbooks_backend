@@ -16,7 +16,11 @@ Backend para la aplicación de tests QuickBook, desarrollado con Vercel Serverle
 ├── api/                   # Funciones serverless
 │   ├── index.js           # Punto de entrada principal
 │   ├── tests.js           # Endpoint para tests
-│   ├── images.js          # Endpoint para imágenes
+│   ├── images/            # Endpoints relacionados con imágenes
+│   │   ├── [id].js        # Obtener imagen por ID
+│   │   ├── upload.js      # Subir nueva imagen
+│   │   ├── list.js        # Listar todas las imágenes
+│   │   └── delete.js      # Eliminar imagen
 │   └── airtable-check.js  # Endpoint para verificar la configuración de Airtable
 ├── vercel.json            # Configuración de despliegue de Vercel
 └── package.json           # Dependencias y scripts
@@ -31,19 +35,32 @@ Backend para la aplicación de tests QuickBook, desarrollado con Vercel Serverle
 
 ### `/api/images`
 
-- **GET**: Obtiene una imagen por ID
+- **GET**: Obtiene una imagen por ID desde Vercel Blob Storage
+
+### `/api/images/upload`
+
+- **POST**: Sube una nueva imagen a Vercel Blob Storage
+
+### `/api/images/list`
+
+- **GET**: Lista todas las imágenes almacenadas en Vercel Blob Storage
+
+### `/api/images/delete`
+
+- **DELETE**: Elimina una imagen de Vercel Blob Storage por ID o pathname
+- **POST**: Alternativa para DELETE, útil para clientes que no soporten DELETE
 
 ### `/api/airtable-check`
 
-- **GET**: Verifica la configuración de Airtable
+- **GET**: Verifica la configuración de Airtable y Vercel Blob
 
 ## Almacenamiento de Imágenes
 
-El sistema utiliza Vercel Blob Storage para almacenar imágenes de manera eficiente:
+El sistema utiliza exclusivamente Vercel Blob Storage para almacenar imágenes de manera eficiente:
 
-1. Las imágenes se suben a Vercel Blob Storage
-2. Las referencias (URLs) se guardan en Airtable
-3. El endpoint `/api/images` recupera las imágenes a partir de su ID
+1. Las imágenes se suben a Vercel Blob Storage con un ID único
+2. Los tests almacenan referencias a estas imágenes mediante sus IDs
+3. El endpoint `/api/images` recupera las imágenes directamente de Vercel Blob Storage usando el ID
 
 ## Variables de Entorno
 
@@ -53,7 +70,6 @@ Para ejecutar este proyecto, necesitas configurar las siguientes variables de en
 AIRTABLE_API_KEY=your_airtable_api_key
 AIRTABLE_BASE_ID=your_airtable_base_id
 AIRTABLE_TABLE_NAME=Tests
-AIRTABLE_TABLE_IMAGES=Images
 BLOB_READ_WRITE_TOKEN=your_vercel_blob_token
 ```
 

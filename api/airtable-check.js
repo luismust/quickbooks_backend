@@ -20,7 +20,6 @@ module.exports = async (req, res) => {
     const apiKey = process.env.AIRTABLE_API_KEY;
     const baseId = process.env.AIRTABLE_BASE_ID;
     const tableName = process.env.AIRTABLE_TABLE_NAME || 'Tests';
-    const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
     
     // Verificar si las credenciales básicas están disponibles
     const hasCredentials = Boolean(apiKey && baseId);
@@ -33,9 +32,12 @@ module.exports = async (req, res) => {
       hasBaseId: Boolean(baseId),
       baseIdLength: baseId ? baseId.length : 0,
       baseIdPreview: baseId ? `${baseId.substring(0, 3)}...${baseId.substring(baseId.length - 3)}` : null,
-      tableName,
-      tableImages
+      tableName
     };
+    
+    // Verificar la configuración de Vercel Blob
+    const hasBlobSecret = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+    configInfo.hasBlobStorage = hasBlobSecret;
     
     // Intentar conectar a Airtable si tenemos credenciales
     let connectionTest = { success: false, error: null, records: null };

@@ -99,6 +99,7 @@ module.exports = async (req, res) => {
               // Usar redirección directa para que el frontend reciba la imagen directamente
               const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
               processedQuestion.image = imageUrl;
+              console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for imageId: ${question.imageId}`);
             }
             // Si es null u otro valor, mantenerlo
             else {
@@ -110,6 +111,7 @@ module.exports = async (req, res) => {
             // Usar redirección directa para que el frontend reciba la imagen directamente
             const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
             processedQuestion.image = imageUrl;
+            console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for imageId: ${question.imageId}`);
           }
           
           return processedQuestion;

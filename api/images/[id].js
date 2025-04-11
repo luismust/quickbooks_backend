@@ -1,5 +1,5 @@
 // /api/images/[id].js
-const Airtable = require('airtable');
+const { list } = require('@vercel/blob');
 const cors = require('cors');
 
 // Configurar CORS
@@ -12,74 +12,51 @@ const handleWithCors = (handler) => async (req, res) => {
   return allowCors(req, res, () => handler(req, res));
 };
 
-// Configurar Airtable
-const getAirtableBase = () => {
-  if (!process.env.AIRTABLE_API_KEY) {
-    throw new Error('AIRTABLE_API_KEY is not defined');
-  }
-  
-  if (!process.env.AIRTABLE_BASE_ID) {
-    throw new Error('AIRTABLE_BASE_ID is not defined');
-  }
-  
-  return new Airtable({ 
-    apiKey: process.env.AIRTABLE_API_KEY,
-    endpointUrl: 'https://api.airtable.com'
-  }).base(process.env.AIRTABLE_BASE_ID);
-};
-
 // Manejador para GET /api/images/[id]
 async function handleGet(req, res) {
   const { id } = req.query;
   
-  console.log('Received request for image ID:', id);
+  console.log('[IMAGES/ID] Received request for image ID:', id);
+  
+  if (!id) {
+    return res.status(400).json({ error: 'Image ID is required' });
+  }
   
   try {
-    const base = getAirtableBase();
-    const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
-    console.log('Using Airtable table:', tableImages);
+    // Buscar la imagen en Vercel Blob Storage usando el patrón de nombre
+    console.log(`[IMAGES/ID] Searching for image with ID: ${id}`);
     
-    // Verificar si tenemos todas las variables de entorno
-    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
-      console.warn('Missing Airtable credentials!');
-      console.log('AIRTABLE_API_KEY defined:', !!process.env.AIRTABLE_API_KEY);
-      console.log('AIRTABLE_BASE_ID defined:', !!process.env.AIRTABLE_BASE_ID);
-    }
+    const blobs = await list({
+      prefix: `image_${id}`,
+      limit: 1
+    });
     
-    // Buscar por ID en la tabla
-    console.log(`Searching for image with ID: ${id}`);
-    const records = await base(tableImages)
-      .select({
-        filterByFormula: `{ID}="${id}"`,
-        maxRecords: 1
-      })
-      .all();
-      
-    console.log(`Found ${records.length} records for ID: ${id}`);
+    console.log(`[IMAGES/ID] Found ${blobs.blobs.length} blobs for ID: ${id}`);
     
-    if (records.length === 0) {
+    if (!blobs.blobs || blobs.blobs.length === 0) {
+      console.warn(`[IMAGES/ID] No image found with ID: ${id}`);
       return res.status(404).json({ error: 'Image not found', id });
     }
     
-    const record = records[0];
-    console.log('Record fields:', Object.keys(record.fields));
-    console.log('Image field present:', !!record.fields.Image);
+    // Obtener el primer blob que coincide (debería ser único por ID)
+    const blob = blobs.blobs[0];
+    console.log('[IMAGES/ID] Blob properties:', {
+      url: blob.url,
+      size: blob.size,
+      contentType: blob.contentType,
+      pathname: blob.pathname
+    });
     
-    if (record.fields.Image && record.fields.Image.length > 0) {
-      console.log('Image URL:', record.fields.Image[0].url);
-      return res.status(200).json({ 
-        id, 
-        url: record.fields.Image[0].url,
-        message: 'Image found successfully' 
-      });
-    } else {
-      return res.status(404).json({ 
-        error: 'Image record found but no image data available',
-        recordId: record.id
-      });
-    }
+    return res.status(200).json({ 
+      id, 
+      url: blob.url,
+      contentType: blob.contentType,
+      size: blob.size,
+      pathname: blob.pathname,
+      message: 'Image found successfully' 
+    });
   } catch (error) {
-    console.error('Error fetching image:', error);
+    console.error('[IMAGES/ID] Error fetching image:', error);
     return res.status(500).json({ 
       error: 'Error fetching image',
       details: error.message
