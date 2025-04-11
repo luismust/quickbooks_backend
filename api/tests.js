@@ -4,32 +4,6 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const axios = require('axios');
 
-// Función para habilitar CORS
-function enableCors(req, res) {
-  // Permitir específicamente el origen de la solicitud o usar uno predeterminado
-  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
-  
-  // Configurar cabeceras CORS
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 
-    'Content-Type, Authorization, Accept, Accept-Version, X-Requested-With, Origin, X-CSRF-Token, ' +
-    'Content-Length, Content-MD5, Date, X-Api-Version, Cache-Control, Pragma'
-  );
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas (en segundos)
-  
-  // Para solicitudes OPTIONS, responder inmediatamente con 200
-  if (req.method === 'OPTIONS') {
-    console.log(`[CORS] Respondiendo a solicitud preflight OPTIONS de origen: ${origin}`);
-    res.status(200).end();
-    return true; // Indicar que se ha manejado la solicitud
-  }
-  
-  // Para otros métodos, continuar con el manejador normal
-  return false;
-}
-
 // Campos exactos de la tabla de tests en Airtable
 const FIELDS = {
   ID: 'id',
@@ -493,68 +467,46 @@ async function saveImageToBlob(imageId, imageData) {
 async function handleDelete(req, res) {
   try {
     console.log(`[DELETE] Processing request with URL: ${req.url}`);
-    console.log(`[DELETE] Headers:`, JSON.stringify(req.headers, null, 2));
     
     // Extraer el ID del test de la URL
     let testId;
     
-    // Intenta diferentes patrones para extraer el ID
+    // Diferentes patrones de URL para extraer el ID
     if (req.url.includes('/api/tests/')) {
-      // Formato: /api/tests/ID o /api/tests/ID?param=value
-      const urlParts = req.url.split('/api/tests/')[1];
-      testId = urlParts.split('?')[0]; // Eliminar parámetros de consulta si existen
-      console.log(`[DELETE] ID extraído de /api/tests/: ${testId}`);
+      // Formato: /api/tests/ID
+      testId = req.url.split('/api/tests/')[1].split('?')[0];
     } else if (req.url.includes('/tests/')) {
-      // Formato: /tests/ID o /tests/ID?param=value (desde el frontend)
-      const urlParts = req.url.split('/tests/')[1];
-      testId = urlParts.split('?')[0]; // Eliminar parámetros de consulta si existen
-      console.log(`[DELETE] ID extraído de /tests/: ${testId}`);
-    } else if (req.query && req.query.id) {
-      // Formato: /api/tests?id=ID
-      testId = req.query.id;
-      console.log(`[DELETE] ID extraído de query param: ${testId}`);
+      // Formato: /tests/ID
+      testId = req.url.split('/tests/')[1].split('?')[0];
     } else {
-      // Último intento: dividir por /
+      // Último recurso: tomar la última parte de la URL
       const urlParts = req.url.split('/');
       testId = urlParts[urlParts.length - 1].split('?')[0];
-      console.log(`[DELETE] ID extraído como último segmento de la URL: ${testId}`);
     }
     
-    // Si después de todo no hay un ID, intentar recuperarlo directamente de la URL
-    if (!testId && req.url) {
-      // Extracción con regex (busca cualquier secuencia alfanumérica al final de una URL)
-      const matches = req.url.match(/([A-Za-z0-9_-]+)(\?|$)/);
-      if (matches && matches[1]) {
-        testId = matches[1];
-        console.log(`[DELETE] ID extraído con regex: ${testId}`);
-      }
-    }
+    console.log(`[DELETE] Extracted test ID: ${testId}`);
     
     if (!testId) {
-      console.error('[DELETE] No se pudo extraer ID del test de la URL');
-      return res.status(400).json({ error: 'Test ID is required', url: req.url });
+      return res.status(400).json({ error: 'Test ID is required' });
     }
-    
-    console.log(`[DELETE] Eliminando test con ID: ${testId}`);
     
     const base = getAirtableBase();
     const tableName = process.env.AIRTABLE_TABLE_NAME || 'Tests';
     
-    // Primero, obtener el test para recuperar sus datos (especialmente imágenes)
-    let test;
+    // Verificar que el test existe
     try {
-      test = await base(tableName).find(testId);
+      await base(tableName).find(testId);
     } catch (findError) {
-      console.error(`Error finding test with ID ${testId}:`, findError);
+      console.error(`[DELETE] Error finding test with ID ${testId}:`, findError);
       return res.status(404).json({ error: `Test with ID ${testId} not found` });
     }
     
-    // Eliminar el test de Airtable
+    // Eliminar el test
     try {
       await base(tableName).destroy(testId);
-      console.log(`Successfully deleted test with ID: ${testId}`);
+      console.log(`[DELETE] Successfully deleted test with ID: ${testId}`);
     } catch (deleteError) {
-      console.error(`Error deleting test with ID ${testId}:`, deleteError);
+      console.error(`[DELETE] Error deleting test with ID ${testId}:`, deleteError);
       return res.status(500).json({ 
         error: 'Failed to delete test',
         details: deleteError.message 
@@ -566,7 +518,7 @@ async function handleDelete(req, res) {
       message: `Test with ID ${testId} successfully deleted`
     });
   } catch (error) {
-    console.error('Error in handleDelete:', error);
+    console.error('[DELETE] Error:', error);
     return res.status(500).json({ 
       error: 'Failed to delete test',
       details: error.message 
@@ -576,10 +528,9 @@ async function handleDelete(req, res) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Primero, manejar CORS
-  if (enableCors(req, res) === true) {
-    // Si enableCors devuelve true, significa que se ha manejado una solicitud OPTIONS
-    return;
+  // Para solicitudes OPTIONS, responder inmediatamente
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
   
   try {
@@ -594,20 +545,8 @@ module.exports = async (req, res) => {
       }
     }
     
-    // Determinar si es una solicitud DELETE con un ID específico
-    if (req.method === 'DELETE') {
-      // Loggear la URL completa para depuración
-      console.log(`[ROUTER] Processing DELETE request with URL: ${req.url}`);
-      
-      // La solicitud DELETE podría venir en cualquiera de estos formatos
-      // 1. /api/tests/ID
-      // 2. /tests/ID
-      // 3. También manejar casos especiales donde la ruta no siga estos patrones
-      
-      // Para evitar problemas, enviamos TODAS las solicitudes DELETE a handleDelete 
-      // y dejamos que esa función extraiga el ID
-      return await handleDelete(req, res);
-    }
+    // Log de la solicitud para depuración
+    console.log(`[ROUTER] Processing ${req.method} request with URL: ${req.url}`);
     
     if (req.method === 'GET') {
       return await handleGet(req, res);
