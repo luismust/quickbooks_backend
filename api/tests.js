@@ -4,6 +4,32 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const axios = require('axios');
 
+// Función para habilitar CORS
+function enableCors(req, res) {
+  // Permitir específicamente el origen de la solicitud o usar uno predeterminado
+  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  
+  // Configurar cabeceras CORS
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 
+    'Content-Type, Authorization, Accept, Accept-Version, X-Requested-With, Origin, X-CSRF-Token, ' +
+    'Content-Length, Content-MD5, Date, X-Api-Version, Cache-Control, Pragma'
+  );
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas (en segundos)
+  
+  // Para solicitudes OPTIONS, responder inmediatamente con 200
+  if (req.method === 'OPTIONS') {
+    console.log(`[CORS] Respondiendo a solicitud preflight OPTIONS de origen: ${origin}`);
+    res.status(200).end();
+    return true; // Indicar que se ha manejado la solicitud
+  }
+  
+  // Para otros métodos, continuar con el manejador normal
+  return false;
+}
+
 // Campos exactos de la tabla de tests en Airtable
 const FIELDS = {
   ID: 'id',
@@ -550,33 +576,10 @@ async function handleDelete(req, res) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Manejo específico de CORS
-  const allowedOrigins = [
-    'https://quickbooks-test-black.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ];
-  
-  const origin = req.headers.origin;
-  
-  // Verificar si el origen está permitido
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    // Permitir el origen por defecto si no está en la lista
-    res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
-  }
-  
-  // Resto de cabeceras CORS
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
-  
-  // Responder inmediatamente a las solicitudes OPTIONS (preflight)
-  if (req.method === 'OPTIONS') {
-    console.log('Handling OPTIONS preflight request from origin:', origin);
-    return res.status(200).end();
+  // Primero, manejar CORS
+  if (enableCors(req, res) === true) {
+    // Si enableCors devuelve true, significa que se ha manejado una solicitud OPTIONS
+    return;
   }
   
   try {
