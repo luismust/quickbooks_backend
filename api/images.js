@@ -169,8 +169,14 @@ module.exports = async (req, res) => {
         // Guardar el nombre de archivo con el prefijo del ID para facilitar la búsqueda después
         const blobFileName = `image_${imageId}.${actualFileName.split('.').pop()}`;
         
-        // Subir a Vercel Blob Storage
-        const blob = await put(blobFileName, buffer, {
+        // Crear un stream a partir del buffer
+        const { Readable } = require('stream');
+        const stream = new Readable();
+        stream.push(buffer);
+        stream.push(null); // Indica fin del stream
+        
+        // Subir a Vercel Blob Storage usando el enfoque recomendado
+        const blob = await put(blobFileName, stream, {
           contentType: mimeType,
           access: 'public', // Hacemos que sea accesible públicamente
         });

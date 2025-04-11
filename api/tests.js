@@ -173,6 +173,7 @@ async function saveImageToBlob(imageId, imageData) {
       return '';
     }
     
+    // Manejar diferentes formatos de datos de imagen
     if (imageData.startsWith('data:')) {
       // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
       const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
@@ -218,8 +219,14 @@ async function saveImageToBlob(imageId, imageData) {
       
       console.log(`[SAVE-IMAGE] Created buffer of size ${buffer.length} bytes for ${imageId}`);
       
-      // Subir a Vercel Blob Storage
-      const blob = await put(fileName, buffer, {
+      // Crear un stream a partir del buffer
+      const { Readable } = require('stream');
+      const stream = new Readable();
+      stream.push(buffer);
+      stream.push(null); // Indica fin del stream
+      
+      // Subir a Vercel Blob Storage - usando el enfoque recomendado para streams
+      const blob = await put(fileName, stream, {
         contentType: mimeType,
         access: 'public', // Hacemos que sea accesible públicamente
       });
@@ -323,7 +330,49 @@ async function handlePost(req, res) {
       // Detectar si es una pregunta tipo "clickArea"
       const isClickArea = q.type === 'clickArea';
       if (isClickArea) {
-        console.log(`[POST] Question ${q.id} is a clickArea type`);
+        console.log(`[POST] Question ${q.id} is a clickArea type, requires special image handling`);
+        
+        // Para preguntas tipo clickArea, debemos asegurarnos de procesar la imagen
+        // Ya que estas preguntas dependen fundamentalmente de la imagen
+        if (q._imageData && typeof q._imageData === 'string' && q._imageData.startsWith('data:')) {
+          console.log(`[POST] Found explicit _imageData for clickArea question ${q.id}`);
+          const imageId = q.id || generateUniqueId();
+          simplifiedQuestion.imageId = imageId;
+          simplifiedQuestion.image = null;
+          
+          imagesToProcess.push({
+            questionId: q.id,
+            imageId: imageId,
+            imageData: q._imageData,
+            priority: 'high' // Prioridad alta para asegurar que se procese
+          });
+        } else if (q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
+          console.log(`[POST] Found _localFile for clickArea question ${q.id}`);
+          const imageId = q.id || generateUniqueId();
+          simplifiedQuestion.imageId = imageId;
+          simplifiedQuestion.image = null;
+          
+          imagesToProcess.push({
+            questionId: q.id,
+            imageId: imageId,
+            imageData: q._localFile,
+            priority: 'high'
+          });
+        }
+        // En caso de que la imagen esté en formato base64 directamente en el campo image
+        else if (q.image && typeof q.image === 'string' && q.image.startsWith('data:')) {
+          console.log(`[POST] Using direct image base64 data for clickArea question ${q.id}`);
+          const imageId = q.id || generateUniqueId();
+          simplifiedQuestion.imageId = imageId;
+          simplifiedQuestion.image = null;
+          
+          imagesToProcess.push({
+            questionId: q.id,
+            imageId: imageId,
+            imageData: q.image,
+            priority: 'high'
+          });
+        }
       }
       
       // Manejar imágenes según su tipo
@@ -488,28 +537,90 @@ async function handlePost(req, res) {
       // Esto se ejecutará en segundo plano y no bloqueará la respuesta
       (async () => {
         try {
+          // Ordenar imágenes para priorizar las que tienen prioridad alta (como las de clickArea)
+          imagesToProcess.sort((a, b) => {
+            if (a.priority === 'high' && b.priority !== 'high') return -1;
+            if (a.priority !== 'high' && b.priority === 'high') return 1;
+            return 0;
+          });
+          
+          console.log(`[POST:BACKGROUND] Sorted ${imagesToProcess.length} images by priority. Processing order:`);
+          imagesToProcess.forEach((img, index) => {
+            console.log(`[POST:BACKGROUND] ${index+1}. Image ${img.imageId} for question ${img.questionId}, priority: ${img.priority || 'normal'}`);
+          });
+          
           const imageResults = [];
+          let successCount = 0;
+          let failureCount = 0;
+          
           for (const img of imagesToProcess) {
             try {
-              console.log(`[POST:BACKGROUND] Processing image for questionId=${img.questionId}, imageId=${img.imageId}, dataLength=${img.imageData ? img.imageData.length : 0}`);
+              console.log(`[POST:BACKGROUND] Processing image for questionId=${img.questionId}, imageId=${img.imageId}, dataLength=${img.imageData ? img.imageData.length : 0}, priority=${img.priority || 'normal'}`);
               
+              // Método 1: Usar directamente el endpoint de imágenes
+              try {
+                // Preparar los datos para el endpoint de imágenes
+                const imageRequestData = {
+                  imageData: img.imageData,
+                  fileName: `image_${img.imageId}.jpg` // Nombre de archivo incluyendo el ID
+                };
+                
+                // Construir la URL del endpoint de imágenes
+                let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+                apiUrl = ensureHttpsProtocol(apiUrl);
+                const imageApiUrl = `${apiUrl}/api/images?action=upload`;
+                
+                console.log(`[POST:BACKGROUND] Uploading image to images API: ${imageApiUrl}`);
+                
+                // Realizar la petición al endpoint de imágenes
+                const response = await axios.post(imageApiUrl, imageRequestData, {
+                  headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.data && response.data.url) {
+                  const imageUrl = response.data.url;
+                  console.log(`[POST:BACKGROUND] Image uploaded successfully via images API: ${imageUrl}`);
+                  
+                  imageResults.push({
+                    questionId: img.questionId,
+                    imageId: img.imageId,
+                    url: imageUrl,
+                    method: 'images-api'
+                  });
+                  successCount++;
+                  continue; // Continuar con la siguiente imagen
+                } else {
+                  console.warn(`[POST:BACKGROUND] Images API did not return a valid URL, falling back to direct method`);
+                }
+              } catch (apiError) {
+                console.error(`[POST:BACKGROUND] Error using images API, falling back to direct method:`, apiError.message);
+              }
+              
+              // Método 2: Fallback al método directo usando saveImageToBlob
               const imageUrl = await saveImageToBlob(img.imageId, img.imageData);
               if (imageUrl) {
                 console.log(`[POST:BACKGROUND] Successfully uploaded image to ${imageUrl}`);
                 imageResults.push({
                   questionId: img.questionId,
                   imageId: img.imageId,
-                  url: imageUrl
+                  url: imageUrl,
+                  method: 'direct-blob'
                 });
+                successCount++;
               } else {
                 console.error(`[POST:BACKGROUND] Failed to upload image for imageId=${img.imageId}`);
+                failureCount++;
               }
             } catch (imgError) {
               console.error(`[POST:BACKGROUND] Failed to save image ${img.imageId}:`, imgError);
               console.error(`[POST:BACKGROUND] Stack trace:`, imgError.stack);
+              failureCount++;
               // Continuar con la siguiente imagen
             }
           }
+          
+          // Resumen final del proceso de imágenes
+          console.log(`[POST:BACKGROUND] Image processing summary: ${successCount} successful, ${failureCount} failed, total: ${imagesToProcess.length}`);
           
           // Si tenemos resultados de imágenes, actualizar el test con sus URLs
           if (imageResults.length > 0) {
@@ -521,6 +632,8 @@ async function handlePost(req, res) {
               
               // Actualizar las URLs de las imágenes
               let updatedCount = 0;
+              let clickAreaUpdatedCount = 0;
+              
               updatedQuestions.forEach(q => {
                 const imageResult = imageResults.find(img => 
                   (img.questionId && img.questionId === q.id) || 
@@ -529,21 +642,65 @@ async function handlePost(req, res) {
                 
                 if (imageResult) {
                   updatedCount++;
-                  console.log(`[POST:BACKGROUND] Updating question ${q.id} with image URL: ${imageResult.url}`);
+                  const isClickArea = q.type === 'clickArea';
+                  if (isClickArea) {
+                    clickAreaUpdatedCount++;
+                    console.log(`[POST:BACKGROUND] Updating clickArea question ${q.id} with image URL: ${imageResult.url}`);
+                  } else {
+                    console.log(`[POST:BACKGROUND] Updating question ${q.id} with image URL: ${imageResult.url}`);
+                  }
+                  
                   q.image = imageResult.url;
+                  q.imageId = imageResult.imageId || q.imageId;
                 }
               });
               
-              console.log(`[POST:BACKGROUND] Updated ${updatedCount} questions with image URLs`);
+              console.log(`[POST:BACKGROUND] Updated ${updatedCount} questions with image URLs (${clickAreaUpdatedCount} clickArea questions)`);
               
-              // Guardar las preguntas actualizadas
-              await base(tableName).update(testId, {
-                fields: {
-                  [FIELDS.QUESTIONS]: JSON.stringify(updatedQuestions)
+              if (updatedCount > 0) {
+                // Guardar las preguntas actualizadas
+                try {
+                  await base(tableName).update(testId, {
+                    fields: {
+                      [FIELDS.QUESTIONS]: JSON.stringify(updatedQuestions)
+                    }
+                  });
+                  
+                  console.log('[POST:BACKGROUND] Test record successfully updated with image URLs');
+                } catch (airtableError) {
+                  console.error('[POST:BACKGROUND] Airtable update error:', airtableError);
+                  console.error('[POST:BACKGROUND] Stack trace:', airtableError.stack);
+                  
+                  // Intento de recuperación si el error es por tamaño
+                  if (airtableError.message && airtableError.message.includes('request entity too large')) {
+                    console.log('[POST:BACKGROUND] Attempting recovery from "request entity too large" error');
+                    
+                    // Limpiar aún más el objeto de preguntas, eliminando datos no esenciales
+                    const essentialQuestions = updatedQuestions.map(q => ({
+                      id: q.id,
+                      type: q.type,
+                      text: q.text,
+                      image: q.image,
+                      imageId: q.imageId,
+                      correctAnswer: q.correctAnswer,
+                      options: q.options
+                    }));
+                    
+                    try {
+                      await base(tableName).update(testId, {
+                        fields: {
+                          [FIELDS.QUESTIONS]: JSON.stringify(essentialQuestions)
+                        }
+                      });
+                      console.log('[POST:BACKGROUND] Recovery successful, test updated with essential question data');
+                    } catch (recoveryError) {
+                      console.error('[POST:BACKGROUND] Recovery attempt failed:', recoveryError);
+                    }
+                  }
                 }
-              });
-              
-              console.log('[POST:BACKGROUND] Test record updated with image URLs');
+              } else {
+                console.log('[POST:BACKGROUND] No questions were updated, skipping Airtable update');
+              }
             } catch (updateError) {
               console.error('[POST:BACKGROUND] Failed to update test with image URLs:', updateError);
               console.error('[POST:BACKGROUND] Stack trace:', updateError.stack);
