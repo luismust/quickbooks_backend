@@ -15,6 +15,7 @@
       },
       "continue": true
     },
+    { "src": "/api/save-test", "dest": "/api/save-test.js", "methods": ["POST", "OPTIONS"] },
     { "src": "/api/load-tests", "dest": "/api/load-tests.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/api/delete-test", "dest": "/api/delete-test.js", "methods": ["POST", "OPTIONS"] },
     { 
@@ -30,6 +31,10 @@
   ],
   "functions": {
     "api/tests.js": {
+      "memory": 1024,
+      "maxDuration": 20
+    },
+    "api/save-test.js": {
       "memory": 1024,
       "maxDuration": 20
     },
