@@ -16,11 +16,10 @@ Backend para la aplicación de tests QuickBook, desarrollado con Vercel Serverle
 ├── api/                   # Funciones serverless
 │   ├── index.js           # Punto de entrada principal
 │   ├── tests.js           # Endpoint para tests
-│   ├── images/            # Endpoints relacionados con imágenes
-│   │   ├── [id].js        # Obtener imagen por ID
-│   │   ├── upload.js      # Subir nueva imagen
-│   │   ├── list.js        # Listar todas las imágenes
-│   │   └── delete.js      # Eliminar imagen
+│   ├── images.js          # Endpoint unificado para gestión de imágenes
+│   ├── save-test.js       # Endpoint para guardar tests
+│   ├── load-tests.js      # Endpoint para cargar tests
+│   ├── delete-test.js     # Endpoint para eliminar tests
 │   └── airtable-check.js  # Endpoint para verificar la configuración de Airtable
 ├── vercel.json            # Configuración de despliegue de Vercel
 └── package.json           # Dependencias y scripts
@@ -33,26 +32,32 @@ Backend para la aplicación de tests QuickBook, desarrollado con Vercel Serverle
 - **GET**: Obtiene todos los tests o un test específico si se proporciona un ID
 - **POST**: Crea un nuevo test
 
+### `/api/load-tests`
+- **GET**: Carga todos los tests o un test específico optimizado para uso del frontend
+
+### `/api/save-test`
+- **POST**: Guarda un nuevo test o actualiza uno existente
+
+### `/api/delete-test`
+- **POST**: Elimina un test por ID
+
 ### `/api/images`
 
-- **GET**: Obtiene una imagen por ID desde Vercel Blob Storage
+Endpoint unificado para gestión de imágenes:
 
-### `/api/images/upload`
-
-- **POST**: Sube una nueva imagen a Vercel Blob Storage
-
-### `/api/images/list`
-
-- **GET**: Lista todas las imágenes almacenadas en Vercel Blob Storage
-
-### `/api/images/delete`
-
-- **DELETE**: Elimina una imagen de Vercel Blob Storage por ID o pathname
-- **POST**: Alternativa para DELETE, útil para clientes que no soporten DELETE
+- **GET** `/api/images?id=<imageId>`: Obtiene una imagen por ID desde Vercel Blob Storage
+- **GET** `/api/images?action=list`: Lista todas las imágenes almacenadas en Vercel Blob Storage
+- **POST** `/api/images?action=upload`: Sube una nueva imagen a Vercel Blob Storage
+- **POST** `/api/images?action=delete`: Elimina una imagen de Vercel Blob por ID o pathname
+- **DELETE** `/api/images`: Elimina una imagen (alternativa al POST con action=delete)
 
 ### `/api/airtable-check`
 
 - **GET**: Verifica la configuración de Airtable y Vercel Blob
+
+## Optimización de Vercel Serverless Functions
+
+Para cumplir con las limitaciones del plan gratuito de Vercel (máximo 12 funciones serverless), se han consolidado los endpoints relacionados con imágenes en un único archivo `api/images.js` que maneja todas las operaciones según el método HTTP y los parámetros recibidos.
 
 ## Almacenamiento de Imágenes
 
