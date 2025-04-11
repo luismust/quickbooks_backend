@@ -468,7 +468,12 @@ async function handleDelete(req, res) {
   try {
     // Extraer el ID del test de la URL (formato: /api/tests/ID)
     const urlParts = req.url.split('/');
-    const testId = urlParts[urlParts.length - 1];
+    let testId = urlParts[urlParts.length - 1];
+    
+    // Si la URL contiene parámetros de consulta, extraer solo el ID
+    if (testId.includes('?')) {
+      testId = testId.split('?')[0];
+    }
     
     if (!testId) {
       return res.status(400).json({ error: 'Test ID is required' });
@@ -519,7 +524,7 @@ module.exports = async (req, res) => {
   const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
   
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Origin', '*');  // Permitir cualquier origen
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
