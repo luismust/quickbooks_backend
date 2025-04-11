@@ -32,6 +32,52 @@ function generateUniqueId() {
   return 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
+// Función para limpiar objetos de pregunta antes de guardar en Airtable
+function cleanQuestionForAirtable(question) {
+  // Crear una copia para no modificar el original
+  const cleanedQuestion = { ...question };
+  
+  // Eliminar campos que contienen datos grandes y no son necesarios para Airtable
+  delete cleanedQuestion._localFile;
+  delete cleanedQuestion._imageData;
+  delete cleanedQuestion._rawData;
+  
+  // Para cada propiedad del objeto, verificar si hay datos anidados
+  Object.keys(cleanedQuestion).forEach(key => {
+    // Si el valor es null o undefined, mantenerlo
+    if (cleanedQuestion[key] == null) {
+      return;
+    }
+    
+    // Si es un objeto grande (como un blob o string muy largo), transformarlo
+    if (typeof cleanedQuestion[key] === 'string' && cleanedQuestion[key].length > 1000) {
+      // Si es una cadena muy larga que no es una URL, reemplazar por NULL
+      if (!cleanedQuestion[key].startsWith('http')) {
+        console.log(`[SAVE-TEST] Replacing long string in question.${key} with null`);
+        cleanedQuestion[key] = null;
+      }
+    }
+    
+    // Si es un objeto o array, limpiarlo recursivamente
+    if (typeof cleanedQuestion[key] === 'object') {
+      if (Array.isArray(cleanedQuestion[key])) {
+        cleanedQuestion[key] = cleanedQuestion[key].map(item => {
+          if (typeof item === 'object' && item !== null) {
+            // Limpiar objetos dentro de arrays
+            return cleanQuestionForAirtable(item);
+          }
+          return item;
+        });
+      } else if (cleanedQuestion[key] !== null) {
+        // Limpiar objetos anidados
+        cleanedQuestion[key] = cleanQuestionForAirtable(cleanedQuestion[key]);
+      }
+    }
+  });
+  
+  return cleanedQuestion;
+}
+
 // Función para guardar una imagen usando Vercel Blob Storage
 async function saveImageToBlob(imageId, imageData) {
   try {
@@ -275,7 +321,8 @@ module.exports = async (req, res) => {
         }
       }
       
-      return simplifiedQuestion;
+      // Limpiar la pregunta antes de guardarla en Airtable
+      return cleanQuestionForAirtable(simplifiedQuestion);
     });
     
     // Preparar datos para Airtable
@@ -294,11 +341,20 @@ module.exports = async (req, res) => {
     
     // Guardar primero el test en Airtable
     console.log('[SAVE-TEST] Saving test data to Airtable');
+    
+    // Registrar el tamaño del JSON para diagnóstico
+    const questionsJson = JSON.stringify(simplifiedQuestions);
+    console.log(`[SAVE-TEST] Size of questions JSON: ${questionsJson.length} characters`);
+    
+    if (questionsJson.length > 100000) {
+      console.error(`[SAVE-TEST] Questions JSON is too large (${questionsJson.length} chars), Airtable might reject it`);
+    }
+    
     const recordData = {
       fields: {
         [FIELDS.NAME]: testToSave.name,
         [FIELDS.DESCRIPTION]: testToSave.description,
-        [FIELDS.QUESTIONS]: JSON.stringify(simplifiedQuestions),
+        [FIELDS.QUESTIONS]: questionsJson,
         [FIELDS.MAX_SCORE]: testToSave.maxScore,
         [FIELDS.MIN_SCORE]: testToSave.minScore,
         [FIELDS.PASSING_MESSAGE]: testToSave.passingMessage,
