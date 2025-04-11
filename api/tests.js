@@ -154,6 +154,97 @@ function generateUniqueId() {
   return 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
+// Función para guardar una imagen usando Vercel Blob Storage
+async function saveImageToBlob(imageId, imageData) {
+  try {
+    // Si falta algún dato necesario, simplemente devolver una URL vacía
+    if (!imageId || !imageData) {
+      console.log('[SAVE-IMAGE] Skipping image upload due to missing data');
+      return '';
+    }
+    
+    console.log(`[SAVE-IMAGE] Processing image ${imageId}, data length: ${imageData ? imageData.length : 0}`);
+    
+    // Extraer información de la imagen base64
+    let fileName, mimeType, base64Content;
+    
+    if (typeof imageData !== 'string') {
+      console.warn(`[SAVE-IMAGE] Image data for ${imageId} is not a string, type: ${typeof imageData}`);
+      return '';
+    }
+    
+    if (imageData.startsWith('data:')) {
+      // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
+      const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      
+      if (!matches || matches.length !== 3) {
+        console.warn(`[SAVE-IMAGE] Invalid base64 image format for ${imageId}, matches: ${matches ? matches.length : 0}`);
+        return '';
+      }
+      
+      mimeType = matches[1];
+      base64Content = matches[2];
+      
+      // Generar un nombre de archivo basado en el tipo MIME
+      const extension = mimeType.split('/')[1] || 'jpg';
+      fileName = `image_${imageId}.${extension}`;
+      
+      console.log(`[SAVE-IMAGE] Successfully extracted image data for ${imageId}, mime: ${mimeType}, filename: ${fileName}`);
+    } else {
+      // Si no es data:, simplemente saltarlo
+      console.warn(`[SAVE-IMAGE] Unsupported image format for ${imageId}, starts with: ${imageData.substring(0, 10)}...`);
+      return '';
+    }
+    
+    // Validar que el contenido base64 es válido
+    if (!base64Content || base64Content.length < 100) {
+      console.warn(`[SAVE-IMAGE] Base64 content too short or invalid for ${imageId}, length: ${base64Content ? base64Content.length : 0}`);
+      return '';
+    }
+    
+    try {
+      // Usar Vercel Blob Storage
+      const { put } = require('@vercel/blob');
+      
+      console.log(`[SAVE-IMAGE] Uploading image ${imageId} to Vercel Blob Storage`);
+      
+      // Convertir base64 a buffer para upload
+      const buffer = Buffer.from(base64Content, 'base64');
+      
+      if (!buffer || buffer.length === 0) {
+        console.error(`[SAVE-IMAGE] Failed to create buffer from base64 for ${imageId}`);
+        return '';
+      }
+      
+      console.log(`[SAVE-IMAGE] Created buffer of size ${buffer.length} bytes for ${imageId}`);
+      
+      // Subir a Vercel Blob Storage
+      const blob = await put(fileName, buffer, {
+        contentType: mimeType,
+        access: 'public', // Hacemos que sea accesible públicamente
+      });
+      
+      if (!blob || !blob.url) {
+        console.error(`[SAVE-IMAGE] Failed to upload to Vercel Blob Storage for ${imageId}, no blob URL returned`);
+        return '';
+      }
+      
+      console.log(`[SAVE-IMAGE] Successfully uploaded image to Vercel Blob: ${blob.url}`);
+      return blob.url;
+      
+    } catch (uploadError) {
+      console.error(`[SAVE-IMAGE] Failed to upload image ${imageId}:`, uploadError);
+      console.error(`[SAVE-IMAGE] Stack trace:`, uploadError.stack);
+      // No propagar el error, simplemente devolver URL vacía
+      return '';
+    }
+  } catch (error) {
+    console.error('[SAVE-IMAGE] Error in saveImageToBlob:', error);
+    console.error('[SAVE-IMAGE] Stack trace:', error.stack);
+    return '';
+  }
+}
+
 // Manejador de la ruta POST /api/tests
 async function handlePost(req, res) {
   try {
@@ -168,7 +259,7 @@ async function handlePost(req, res) {
       try {
         test = JSON.parse(test);
       } catch (parseError) {
-        console.error('Error parsing request body:', parseError);
+        console.error('[POST] Error parsing request body:', parseError);
         return res.status(400).json({ 
           error: 'Invalid JSON in request body',
           details: parseError.message
@@ -176,7 +267,7 @@ async function handlePost(req, res) {
       }
     }
     
-    console.log('Received test data:', {
+    console.log('[POST] Received test data:', {
       id: test.id,
       name: test.name,
       questionsCount: test.questions ? test.questions.length : 0
@@ -184,7 +275,7 @@ async function handlePost(req, res) {
     
     // Verificar que tenemos las variables de entorno necesarias
     if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID || !process.env.AIRTABLE_TABLE_NAME) {
-      console.error('Missing environment variables:', {
+      console.error('[POST] Missing environment variables:', {
         hasApiKey: Boolean(process.env.AIRTABLE_API_KEY),
         hasBaseId: Boolean(process.env.AIRTABLE_BASE_ID),
         hasTableName: Boolean(process.env.AIRTABLE_TABLE_NAME)
@@ -219,17 +310,40 @@ async function handlePost(req, res) {
     // Procesar imágenes y simplificar preguntas
     let imagesToProcess = [];
     const simplifiedQuestions = testToSave.questions.map(q => {
+      // Crear una copia limpia sin propiedades grandes
       const simplifiedQuestion = { ...q };
+      
+      // Eliminar propiedades que puedan contener datos grandes
+      delete simplifiedQuestion._localFile;
+      delete simplifiedQuestion._imageData;
+      delete simplifiedQuestion._rawData;
+      
+      console.log(`[POST] Processing question ID: ${q.id}, type: ${q.type}`);
+      
+      // Detectar si es una pregunta tipo "clickArea"
+      const isClickArea = q.type === 'clickArea';
+      if (isClickArea) {
+        console.log(`[POST] Question ${q.id} is a clickArea type`);
+      }
       
       // Manejar imágenes según su tipo
       if (q.image) {
         try {
+          console.log(`[POST] Processing image for question ${q.id}, type: ${typeof q.image}`);
+          
+          // Imprimir datos relevantes para diagnóstico
+          if (q._imageData) console.log(`[POST] _imageData present: ${typeof q._imageData}, length: ${typeof q._imageData === 'string' ? q._imageData.length : 'N/A'}`);
+          if (q._localFile) console.log(`[POST] _localFile present: ${typeof q._localFile}, length: ${typeof q._localFile === 'string' ? q._localFile.length : 'N/A'}`);
+          console.log(`[POST] image: ${typeof q.image}, ${typeof q.image === 'string' ? `length: ${q.image.length}` : 'not a string'}`);
+          
+          // Si es un dato base64 directo
           if (q.image.startsWith('data:')) {
+            console.log(`[POST] Image is data URL for question ${q.id}`);
             // Generar un ID único para la imagen
             const imageId = q.id || generateUniqueId();
             
             // Guardar la referencia en la pregunta
-            simplifiedQuestion.imageId = imageId; // Guardar el ID para referencias futuras
+            simplifiedQuestion.imageId = imageId;
             simplifiedQuestion.image = null; // Vaciar el campo de imagen para no almacenar datos grandes
             
             // Añadir a la lista para procesar después
@@ -239,32 +353,46 @@ async function handlePost(req, res) {
               imageData: q.image
             });
           }
+          // Si es blob URL pero tenemos base64 en _localFile o _imageData
           else if (q.image.startsWith('blob:')) {
-            if (q._imageData) {
+            console.log(`[POST] Image is blob URL: ${q.image.substring(0, 30)}... for question ${q.id}`);
+            
+            let imageData = null;
+            if (q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
+              imageData = q._localFile;
+              console.log(`[POST] Using _localFile for blob URL in question ${q.id}`);
+            } else if (q._imageData && typeof q._imageData === 'string' && q._imageData.startsWith('data:')) {
+              imageData = q._imageData;
+              console.log(`[POST] Using _imageData for blob URL in question ${q.id}`);
+            }
+            
+            if (imageData) {
               const imageId = q.id || generateUniqueId();
               simplifiedQuestion.imageId = imageId;
               simplifiedQuestion.image = null;
               
-              // Añadir a la lista para procesar después
               imagesToProcess.push({
                 questionId: q.id,
                 imageId: imageId,
-                imageData: q._imageData
+                imageData: imageData
               });
             } else {
-              console.warn(`Question ${q.id} has blob URL but no _imageData, skipping image`);
+              console.warn(`[POST] Blob URL detected, but no valid base64 data available for question ${q.id}`);
               simplifiedQuestion.image = null;
             }
-          } else if (q.image.startsWith('http')) {
-            // Ya es una URL, mantenerla como está
+          } 
+          // Si es HTTP URL, mantenerla como está
+          else if (q.image.startsWith('http')) {
+            console.log(`[POST] Image is HTTP URL for question ${q.id}, keeping as is`);
             simplifiedQuestion.image = q.image;
-          } else {
-            // No es un formato reconocido
-            console.warn(`Question ${q.id} has unrecognized image format: ${q.image.substring(0, 20)}...`);
+          } 
+          // Otros formatos no reconocidos
+          else {
+            console.warn(`[POST] Question ${q.id} has unrecognized image format: ${q.image.substring(0, 20)}...`);
             simplifiedQuestion.image = null;
           }
         } catch (imgError) {
-          console.error(`Error processing image for question ${q.id}:`, imgError);
+          console.error(`[POST] Error processing image for question ${q.id}:`, imgError);
           simplifiedQuestion.image = null;
         }
       }
@@ -272,13 +400,38 @@ async function handlePost(req, res) {
       return simplifiedQuestion;
     });
     
+    // Eliminar datos grandes de las preguntas antes de guardar en Airtable
+    const cleanedQuestions = simplifiedQuestions.map(q => {
+      // Crear una copia limpia
+      const cleaned = { ...q };
+      
+      // Eliminar propiedades que puedan contener datos grandes
+      Object.keys(cleaned).forEach(key => {
+        // Si el valor es null o undefined, mantenerlo
+        if (cleaned[key] == null) {
+          return;
+        }
+        
+        // Si es un string muy largo y no es una URL, eliminarlo
+        if (typeof cleaned[key] === 'string' && cleaned[key].length > 1000 && !cleaned[key].startsWith('http')) {
+          console.log(`[POST] Removing large string property ${key} from question ${q.id || 'unknown'}`);
+          cleaned[key] = null;
+        }
+      });
+      
+      return cleaned;
+    });
+    
     // Guardar primero el test en Airtable
-    console.log('Saving test data to Airtable');
+    console.log('[POST] Saving test data to Airtable');
+    const questionsJson = JSON.stringify(cleanedQuestions);
+    console.log(`[POST] Size of questions JSON: ${questionsJson.length} characters`);
+    
     const recordData = {
       fields: {
         [FIELDS.NAME]: testToSave.name,
         [FIELDS.DESCRIPTION]: testToSave.description,
-        [FIELDS.QUESTIONS]: JSON.stringify(simplifiedQuestions),
+        [FIELDS.QUESTIONS]: questionsJson,
         [FIELDS.MAX_SCORE]: testToSave.maxScore,
         [FIELDS.MIN_SCORE]: testToSave.minScore,
         [FIELDS.PASSING_MESSAGE]: testToSave.passingMessage,
@@ -287,13 +440,13 @@ async function handlePost(req, res) {
     };
     
     // Crear registro en Airtable - esta es la operación crítica
-    console.log('Creating Airtable record...');
+    console.log('[POST] Creating Airtable record...');
     let createdRecord;
     try {
       const records = await base(tableName).create([recordData]);
       
       if (!records || records.length === 0) {
-        console.error('No records returned from Airtable create operation');
+        console.error('[POST] No records returned from Airtable create operation');
         return res.status(500).json({ 
           error: 'Failed to save test',
           details: 'No records returned from Airtable'
@@ -302,7 +455,7 @@ async function handlePost(req, res) {
       
       createdRecord = records[0];
     } catch (airtableError) {
-      console.error('Airtable create error:', airtableError);
+      console.error('[POST] Airtable create error:', airtableError);
       return res.status(500).json({ 
         error: 'Failed to save test in Airtable',
         details: airtableError.message || 'Unknown Airtable error'
@@ -312,14 +465,14 @@ async function handlePost(req, res) {
     const testId = createdRecord.id;
     
     if (!testId) {
-      console.error('No ID returned for created record:', createdRecord);
+      console.error('[POST] No ID returned for created record:', createdRecord);
       return res.status(500).json({ 
         error: 'Failed to get test ID',
         details: 'Record created but no ID returned'
       });
     }
     
-    console.log('Successfully created test with ID:', testId);
+    console.log('[POST] Successfully created test with ID:', testId);
     
     // Preparar respuesta con el ID generado
     const responseData = {
@@ -330,7 +483,7 @@ async function handlePost(req, res) {
     
     // Intentar procesar imágenes en segundo plano, pero no bloquear la respuesta
     if (imagesToProcess.length > 0) {
-      console.log(`Processing ${imagesToProcess.length} images in background...`);
+      console.log(`[POST] Processing ${imagesToProcess.length} images in background...`);
       
       // Esto se ejecutará en segundo plano y no bloqueará la respuesta
       (async () => {
@@ -338,35 +491,50 @@ async function handlePost(req, res) {
           const imageResults = [];
           for (const img of imagesToProcess) {
             try {
+              console.log(`[POST:BACKGROUND] Processing image for questionId=${img.questionId}, imageId=${img.imageId}, dataLength=${img.imageData ? img.imageData.length : 0}`);
+              
               const imageUrl = await saveImageToBlob(img.imageId, img.imageData);
               if (imageUrl) {
+                console.log(`[POST:BACKGROUND] Successfully uploaded image to ${imageUrl}`);
                 imageResults.push({
                   questionId: img.questionId,
                   imageId: img.imageId,
                   url: imageUrl
                 });
+              } else {
+                console.error(`[POST:BACKGROUND] Failed to upload image for imageId=${img.imageId}`);
               }
             } catch (imgError) {
-              console.error(`Failed to save image ${img.imageId}:`, imgError);
+              console.error(`[POST:BACKGROUND] Failed to save image ${img.imageId}:`, imgError);
+              console.error(`[POST:BACKGROUND] Stack trace:`, imgError.stack);
               // Continuar con la siguiente imagen
             }
           }
           
           // Si tenemos resultados de imágenes, actualizar el test con sus URLs
           if (imageResults.length > 0) {
-            console.log(`Successfully processed ${imageResults.length} images, updating test record...`);
+            console.log(`[POST:BACKGROUND] Successfully processed ${imageResults.length}/${imagesToProcess.length} images, updating test record...`);
             try {
               // Obtener el test recién creado
               const testRecord = await base(tableName).find(testId);
               const updatedQuestions = JSON.parse(testRecord.fields[FIELDS.QUESTIONS] || '[]');
               
               // Actualizar las URLs de las imágenes
+              let updatedCount = 0;
               updatedQuestions.forEach(q => {
-                const imageResult = imageResults.find(img => img.questionId === q.id || img.imageId === q.imageId);
+                const imageResult = imageResults.find(img => 
+                  (img.questionId && img.questionId === q.id) || 
+                  (img.imageId && img.imageId === q.imageId)
+                );
+                
                 if (imageResult) {
+                  updatedCount++;
+                  console.log(`[POST:BACKGROUND] Updating question ${q.id} with image URL: ${imageResult.url}`);
                   q.image = imageResult.url;
                 }
               });
+              
+              console.log(`[POST:BACKGROUND] Updated ${updatedCount} questions with image URLs`);
               
               // Guardar las preguntas actualizadas
               await base(tableName).update(testId, {
@@ -375,108 +543,37 @@ async function handlePost(req, res) {
                 }
               });
               
-              console.log('Test record updated with image URLs');
+              console.log('[POST:BACKGROUND] Test record updated with image URLs');
             } catch (updateError) {
-              console.error('Failed to update test with image URLs:', updateError);
+              console.error('[POST:BACKGROUND] Failed to update test with image URLs:', updateError);
+              console.error('[POST:BACKGROUND] Stack trace:', updateError.stack);
             }
           } else {
-            console.warn('No images were successfully processed');
+            console.warn('[POST:BACKGROUND] No images were successfully processed');
           }
           
-          console.log('Background image processing completed');
+          console.log('[POST:BACKGROUND] Background image processing completed');
         } catch (bgError) {
-          console.error('Error in background image processing:', bgError);
+          console.error('[POST:BACKGROUND] Error in background image processing:', bgError);
+          console.error('[POST:BACKGROUND] Stack trace:', bgError.stack);
         }
       })();
     }
     
     // Verificar que el ID está incluido en la respuesta antes de enviarla
     if (!responseData.id) {
-      console.error('ID missing from response data:', responseData);
+      console.error('[POST] ID missing from response data:', responseData);
       responseData.id = testId; // Garantizar que el ID esté presente
     }
     
     // Enviar respuesta inmediatamente, sin esperar el procesamiento de imágenes
     return res.status(200).json(responseData);
   } catch (error) {
-    console.error('Error saving test:', error);
+    console.error('[POST] Error saving test:', error);
     return res.status(500).json({ 
       error: 'Failed to save test',
       details: error.message
     });
-  }
-}
-
-// Función para guardar una imagen usando Vercel Blob Storage
-async function saveImageToBlob(imageId, imageData) {
-  try {
-    // Si falta algún dato necesario, simplemente devolver una URL vacía
-    if (!imageId || !imageData) {
-      console.log('Skipping image upload due to missing data');
-      return '';
-    }
-    
-    // Extraer información de la imagen base64
-    let fileName, mimeType, base64Content;
-    
-    if (imageData.startsWith('data:')) {
-      // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
-      const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
-      
-      if (!matches || matches.length !== 3) {
-        console.warn('Invalid base64 image format, skipping upload');
-        return '';
-      }
-      
-      mimeType = matches[1];
-      base64Content = matches[2];
-      
-      // Generar un nombre de archivo basado en el tipo MIME
-      const extension = mimeType.split('/')[1] || 'jpg';
-      fileName = `image_${imageId}.${extension}`;
-    } else {
-      // Si no es data:, simplemente saltarlo
-      console.warn('Unsupported image format, skipping upload');
-      return '';
-    }
-    
-    // Validar que el contenido base64 es válido
-    if (!base64Content || base64Content.length < 100) {
-      console.warn('Base64 content too short or invalid');
-      return '';
-    }
-    
-    try {
-      // Usar Vercel Blob Storage
-      const { put } = require('@vercel/blob');
-      
-      console.log(`Uploading image ${imageId} to Vercel Blob Storage`);
-      
-      // Convertir base64 a buffer para upload
-      const buffer = Buffer.from(base64Content, 'base64');
-      
-      // Subir a Vercel Blob Storage
-      const blob = await put(fileName, buffer, {
-        contentType: mimeType,
-        access: 'public', // Hacemos que sea accesible públicamente
-      });
-      
-      if (!blob || !blob.url) {
-        console.error('Failed to upload to Vercel Blob Storage');
-        return '';
-      }
-      
-      console.log(`Successfully uploaded image to Vercel Blob: ${blob.url}`);
-      return blob.url;
-      
-    } catch (uploadError) {
-      console.error(`Failed to upload image ${imageId}:`, uploadError.message);
-      // No propagar el error, simplemente devolver URL vacía
-      return '';
-    }
-  } catch (error) {
-    console.error('Error in saveImageToBlob:', error);
-    return '';
   }
 }
 
