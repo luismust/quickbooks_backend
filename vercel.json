@@ -15,6 +15,7 @@
       },
       "continue": true
     },
+    { "src": "/api/load-tests", "dest": "/api/load-tests.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/api/delete-test", "dest": "/api/delete-test.js", "methods": ["POST", "OPTIONS"] },
     { 
       "src": "/api/tests/([^/]+)",
@@ -31,6 +32,10 @@
     "api/tests.js": {
       "memory": 1024,
       "maxDuration": 20
+    },
+    "api/load-tests.js": {
+      "memory": 1024,
+      "maxDuration": 10
     },
     "api/delete-test.js": {
       "memory": 1024,
