@@ -198,6 +198,11 @@ module.exports = async (req, res) => {
         try {
           console.log(`[SAVE-TEST] Processing image for question ${q.id || 'unknown'}, type: ${typeof q.image}`);
           
+          // Imprimir todas las propiedades de la pregunta relacionadas con imágenes
+          if (q._imageData) console.log(`[SAVE-TEST] _imageData present: ${typeof q._imageData}, length: ${typeof q._imageData === 'string' ? q._imageData.length : 'N/A'}, starts with: ${typeof q._imageData === 'string' ? q._imageData.substring(0, 20) + '...' : 'N/A'}`);
+          if (q._localFile) console.log(`[SAVE-TEST] _localFile present: ${typeof q._localFile}, length: ${typeof q._localFile === 'string' ? q._localFile.length : 'N/A'}, starts with: ${typeof q._localFile === 'string' ? q._localFile.substring(0, 20) + '...' : 'N/A'}`);
+          console.log(`[SAVE-TEST] image: ${typeof q.image}, ${typeof q.image === 'string' ? `length: ${q.image.length}, starts with: ${q.image.substring(0, 20)}...` : 'not a string'}`);
+          
           // Si tenemos _imageData explícito, usarlo con prioridad
           if (q._imageData && typeof q._imageData === 'string' && q._imageData.startsWith('data:')) {
             console.log(`[SAVE-TEST] Using explicit _imageData field for question ${q.id || 'unknown'}`);
@@ -226,18 +231,33 @@ module.exports = async (req, res) => {
             });
           }
           // Si es blob URL pero tenemos base64 en _localFile
-          else if (q.image.startsWith('blob:') && q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
-            console.log(`[SAVE-TEST] Image is blob URL with localFile, using localFile for question ${q.id || 'unknown'}`);
-            const imageId = q.id || generateUniqueId();
+          else if (q.image.startsWith('blob:')) {
+            console.log(`[SAVE-TEST] Image is blob URL: ${q.image} for question ${q.id || 'unknown'}`);
             
-            simplifiedQuestion.imageId = imageId;
-            simplifiedQuestion.image = null;
-            
-            imagesToProcess.push({
-              questionId: q.id,
-              imageId: imageId,
-              imageData: q._localFile
-            });
+            if (q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
+              console.log(`[SAVE-TEST] Found _localFile for blob URL, using it for question ${q.id || 'unknown'}`);
+              const imageId = q.id || generateUniqueId();
+              
+              simplifiedQuestion.imageId = imageId;
+              simplifiedQuestion.image = null;
+              
+              imagesToProcess.push({
+                questionId: q.id,
+                imageId: imageId,
+                imageData: q._localFile
+              });
+            } 
+            else {
+              console.warn(`[SAVE-TEST] Blob URL detected, but no _localFile available for question ${q.id || 'unknown'}`);
+              // No podemos procesar un blob URL directamente sin _localFile
+              simplifiedQuestion.image = null;
+              
+              // Si tenemos una URL anterior guardada, intentar mantenerla
+              if (q.imageId) {
+                console.log(`[SAVE-TEST] Keeping existing imageId ${q.imageId} for blob URL without _localFile`);
+                simplifiedQuestion.imageId = q.imageId;
+              }
+            }
           }
           // Si es HTTP URL, mantenerla
           else if (q.image.startsWith('http')) {
