@@ -173,6 +173,57 @@ async function saveImageToBlob(imageId, imageData) {
   }
 }
 
+// Función para extraer el ID de la pregunta del blob URL
+function extractIdFromBlobUrl(blobUrl) {
+  try {
+    // Si el blobUrl tiene una estructura como blob:https://quickbooks-test-black.vercel.app/{uuid}
+    // extraemos el uuid como identificador único
+    const matches = blobUrl.match(/blob:https?:\/\/[^/]+\/([a-f0-9-]+)/i);
+    if (matches && matches[1]) {
+      // Usar los primeros 8 caracteres del UUID como ID de imagen
+      return matches[1].substring(0, 8);
+    }
+    return null;
+  } catch (error) {
+    console.error('[BLOB-ID] Error extracting ID from blob URL:', error);
+    return null;
+  }
+}
+
+// Depurar la estructura de datos de la imagen
+function debugImageData(questionId, question) {
+  console.log(`[SAVE-TEST:DEBUG] Estructura de datos de imagen para pregunta ${questionId}:`);
+  
+  // Revisar propiedades principales
+  if (question.image) console.log(`- image: ${typeof question.image}, valor: ${typeof question.image === 'string' ? question.image.substring(0, 50) + '...' : JSON.stringify(question.image).substring(0, 50) + '...'}`);
+  if (question.imageId) console.log(`- imageId: ${question.imageId}`);
+  if (question._imageData) console.log(`- _imageData: ${typeof question._imageData}, longitud: ${typeof question._imageData === 'string' ? question._imageData.length : 'N/A'}`);
+  if (question._localFile) console.log(`- _localFile: ${typeof question._localFile}, longitud: ${typeof question._localFile === 'string' ? question._localFile.length : 'N/A'}`);
+  
+  // Análisis específico
+  if (question.image && typeof question.image === 'string') {
+    if (question.image.startsWith('data:')) {
+      console.log(`- image es un URL data:// (base64), longitud: ${question.image.length}`);
+    } else if (question.image.startsWith('blob:')) {
+      console.log(`- image es un URL blob://, valor: ${question.image}`);
+      const blobId = extractIdFromBlobUrl(question.image);
+      if (blobId) console.log(`  - Blob ID extraído: ${blobId}`);
+    } else if (question.image.startsWith('http')) {
+      console.log(`- image es un URL HTTP, valor: ${question.image}`);
+    }
+  }
+  
+  // Determinar si tiene datos válidos para subirlos
+  let hasValidImageData = false;
+  if (question._imageData && typeof question._imageData === 'string' && question._imageData.startsWith('data:')) hasValidImageData = true;
+  if (question._localFile && typeof question._localFile === 'string' && question._localFile.startsWith('data:')) hasValidImageData = true;
+  if (question.image && typeof question.image === 'string' && question.image.startsWith('data:')) hasValidImageData = true;
+  
+  console.log(`- ¿Tiene datos válidos para subir imagen? ${hasValidImageData ? 'SÍ' : 'NO'}`);
+  
+  return hasValidImageData;
+}
+
 // Manejador principal
 module.exports = async (req, res) => {
   // Configuración manual de CORS
@@ -242,7 +293,11 @@ module.exports = async (req, res) => {
       // Manejar imágenes según su tipo
       if (q.image) {
         try {
-          console.log(`[SAVE-TEST] Processing image for question ${q.id || 'unknown'}, type: ${typeof q.image}`);
+          const questionId = q.id || 'unknown';
+          console.log(`[SAVE-TEST] Processing image for question ${questionId}, type: ${typeof q.image}`);
+          
+          // Depurar datos de imagen completos
+          const hasValidImageData = debugImageData(questionId, q);
           
           // Imprimir todas las propiedades de la pregunta relacionadas con imágenes
           if (q._imageData) console.log(`[SAVE-TEST] _imageData present: ${typeof q._imageData}, length: ${typeof q._imageData === 'string' ? q._imageData.length : 'N/A'}, starts with: ${typeof q._imageData === 'string' ? q._imageData.substring(0, 20) + '...' : 'N/A'}`);

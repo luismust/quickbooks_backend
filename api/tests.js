@@ -47,6 +47,23 @@ function ensureHttpsProtocol(url) {
   return `https://${url}`;
 }
 
+// Función para extraer el ID de la pregunta del blob URL
+function extractIdFromBlobUrl(blobUrl) {
+  try {
+    // Si el blobUrl tiene una estructura como blob:https://quickbooks-test-black.vercel.app/{uuid}
+    // extraemos el uuid como identificador único
+    const matches = blobUrl.match(/blob:https?:\/\/[^/]+\/([a-f0-9-]+)/i);
+    if (matches && matches[1]) {
+      // Usar los primeros 8 caracteres del UUID como ID de imagen
+      return matches[1].substring(0, 8);
+    }
+    return null;
+  } catch (error) {
+    console.error('[BLOB-ID] Error extracting ID from blob URL:', error);
+    return null;
+  }
+}
+
 // Manejador de la ruta GET /api/tests
 async function handleGet(req, res) {
   try {
@@ -255,6 +272,93 @@ async function saveImageToBlob(imageId, imageData) {
 // Manejador de la ruta POST /api/tests
 async function handlePost(req, res) {
   try {
+    const { id } = req.query;
+    
+    // Si se proporciona un ID, es una actualización de imagen para una pregunta específica
+    if (id && req.body && (req.body.imageUrl || req.body.imageId)) {
+      console.log(`[POST] Recibida solicitud para actualizar imagen con ID: ${id}`);
+      console.log(`[POST] Datos: imageUrl=${req.body.imageUrl}, imageId=${req.body.imageId}`);
+      
+      // Buscar todos los tests en la base de datos
+      const base = getAirtableBase();
+      const tableName = process.env.AIRTABLE_TABLE_NAME || 'Tests';
+      const records = await base(tableName).select().all();
+      let foundTest = null;
+      let foundQuestion = null;
+      let recordId = null;
+      
+      // Buscar la pregunta que contiene el ID de imagen en todos los tests
+      for (const record of records) {
+        try {
+          const questions = JSON.parse(record.fields[FIELDS.QUESTIONS] || '[]');
+          
+          // Buscar la pregunta con el ID proporcionado
+          const question = questions.find(q => 
+            q.id === id || q.imageId === id
+          );
+          
+          if (question) {
+            foundTest = record;
+            foundQuestion = question;
+            recordId = record.id;
+            break;
+          }
+        } catch (parseError) {
+          console.error(`[POST] Error parsing questions for record ${record.id}:`, parseError);
+        }
+      }
+      
+      if (!foundTest) {
+        return res.status(404).json({ error: `No se encontró ninguna pregunta con ID ${id}` });
+      }
+      
+      // Actualizar la imagen de la pregunta
+      try {
+        const questions = JSON.parse(foundTest.fields[FIELDS.QUESTIONS]);
+        const questionIndex = questions.findIndex(q => 
+          q.id === id || q.imageId === id
+        );
+        
+        if (questionIndex !== -1) {
+          // Actualizar la URL de la imagen
+          if (req.body.imageUrl) {
+            questions[questionIndex].image = req.body.imageUrl;
+            console.log(`[POST] Actualizada URL de imagen para pregunta ${questions[questionIndex].id}: ${req.body.imageUrl}`);
+          }
+          
+          // Actualizar el ID de la imagen si se proporciona
+          if (req.body.imageId) {
+            questions[questionIndex].imageId = req.body.imageId;
+            console.log(`[POST] Actualizado imageId para pregunta ${questions[questionIndex].id}: ${req.body.imageId}`);
+          }
+          
+          // Guardar cambios
+          await base(tableName).update(recordId, {
+            fields: {
+              [FIELDS.QUESTIONS]: JSON.stringify(questions)
+            }
+          });
+          
+          console.log(`[POST] Test actualizado exitosamente con la nueva URL de imagen`);
+          
+          return res.status(200).json({
+            success: true,
+            message: 'Imagen actualizada exitosamente',
+            testId: recordId,
+            questionId: questions[questionIndex].id
+          });
+        } else {
+          return res.status(404).json({ error: `No se encontró la pregunta en el test` });
+        }
+      } catch (updateError) {
+        console.error(`[POST] Error al actualizar la imagen:`, updateError);
+        return res.status(500).json({ 
+          error: 'Error al actualizar la imagen',
+          details: updateError.message
+        });
+      }
+    }
+    
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -403,8 +507,8 @@ async function handlePost(req, res) {
             });
           }
           // Si es blob URL pero tenemos base64 en _localFile o _imageData
-          else if (q.image.startsWith('blob:')) {
-            console.log(`[POST] Image is blob URL: ${q.image.substring(0, 30)}... for question ${q.id}`);
+          else if (q.image && q.image.startsWith('blob:')) {
+            console.log(`[POST] Image is blob URL: ${q.image} for question ${q.id}`);
             
             let imageData = null;
             if (q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
@@ -416,14 +520,24 @@ async function handlePost(req, res) {
             }
             
             if (imageData) {
-              const imageId = q.id || generateUniqueId();
+              // Generar un ID único para la imagen - usar el ID de la pregunta o extraer del blob URL
+              const blobUrlId = extractIdFromBlobUrl(q.image);
+              const imageId = q.id || blobUrlId || generateUniqueId();
+              
+              console.log(`[POST] Generated imageId for blob URL: ${imageId} (blobUrlId: ${blobUrlId})`);
+              
               simplifiedQuestion.imageId = imageId;
               simplifiedQuestion.image = null;
+              
+              // Marcar esta imagen como prioritaria especialmente si es un tipo clickArea
+              const priority = q.type === 'clickArea' ? 'high' : 'normal';
               
               imagesToProcess.push({
                 questionId: q.id,
                 imageId: imageId,
-                imageData: imageData
+                imageData: imageData,
+                blobUrl: q.image,
+                priority: priority
               });
             } else {
               console.warn(`[POST] Blob URL detected, but no valid base64 data available for question ${q.id}`);

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ejemplo de Integración de Procesador de Imágenes Blob</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
+        h1 { color: #333; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .image-preview { max-width: 300px; max-height: 200px; border: 1px solid #ddd; margin: 10px 0; }
+        button { padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #45a049; }
+        .code-block { background: #f8f8f8; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ejemplo de Integración de Procesador de Imágenes Blob</h1>
+        
+        <h2>1. Incluir el script en tu página</h2>
+        <p>Primero, incluye el archivo <code>blob-image-processor.js</code> en tu HTML:</p>
+        <pre><code>&lt;script src="blob-image-processor.js"&gt;&lt;/script&gt;</code></pre>
+        
+        <h2>2. Procesamiento antes de enviar al servidor</h2>
+        <p>Cuando envíes un test al servidor, procesa las imágenes blob primero:</p>
+        <div class="code-block">
+            <pre><code>
+// En tu función de guardar test
+async function saveTest(test) {
+    try {
+        // 1. Procesar todas las imágenes blob en el test
+        const processedTest = await window.BlobImageProcessor.processAllBlobImagesInTest(test);
+        
+        // 2. Enviar el test procesado al servidor
+        const response = await fetch('https://quickbooks-backend.vercel.app/api/tests', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(processedTest)
+        });
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error al guardar el test:', error);
+        throw error;
+    }
+}
+            </code></pre>
+        </div>
+        
+        <h2>3. Ejemplo práctico</h2>
+        <p>Aquí hay un ejemplo práctico utilizando una imagen de prueba:</p>
+        
+        <div>
+            <input type="file" id="imageInput" accept="image/*">
+            <div>
+                <img id="imagePreview" class="image-preview">
+                <p id="imageInfo"></p>
+            </div>
+            <button id="processButton" disabled>Procesar Imagen</button>
+            <div>
+                <h3>Resultado:</h3>
+                <img id="resultImage" class="image-preview">
+                <p id="resultInfo"></p>
+            </div>
+        </div>
+        
+        <h2>4. Modificación de tu código existente</h2>
+        <p>Para integrar esto en tu aplicación de QuickBooks Test, necesitas:</p>
+        <ol>
+            <li>Añadir el script <code>blob-image-processor.js</code> a tu aplicación</li>
+            <li>Modificar tu función de guardado de test para procesar las imágenes blob</li>
+            <li>Opcional: Agregar pre-procesamiento de imágenes al cargar/visualizar preguntas</li>
+        </ol>
+        
+        <div class="code-block">
+            <pre><code>
+// Ejemplo con Vue.js o similar
+methods: {
+    async saveTest() {
+        this.isSaving = true;
+        try {
+            // Procesar imágenes blob antes de guardar
+            const processedTest = await window.BlobImageProcessor.processAllBlobImagesInTest(this.test);
+            
+            // Continuar con tu lógica de guardado existente
+            const result = await this.saveTestToServer(processedTest);
+            
+            this.$toast.success('Test guardado correctamente');
+            return result;
+        } catch (error) {
+            console.error('Error al guardar test:', error);
+            this.$toast.error('Error al guardar el test');
+        } finally {
+            this.isSaving = false;
+        }
+    }
+}
+            </code></pre>
+        </div>
+    </div>
+
+    <!-- Incluir el procesador de imágenes blob -->
+    <script src="blob-image-processor.js"></script>
+    
+    <!-- Script de demostración -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const imageInput = document.getElementById('imageInput');
+            const imagePreview = document.getElementById('imagePreview');
+            const imageInfo = document.getElementById('imageInfo');
+            const processButton = document.getElementById('processButton');
+            const resultImage = document.getElementById('resultImage');
+            const resultInfo = document.getElementById('resultInfo');
+            
+            let blobUrl = null;
+            
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    
+                    // Crear blob URL
+                    blobUrl = URL.createObjectURL(file);
+                    
+                    // Mostrar imagen
+                    imagePreview.src = blobUrl;
+                    imageInfo.textContent = `Blob URL: ${blobUrl} | Tamaño: ${(file.size / 1024).toFixed(2)} KB`;
+                    
+                    // Habilitar botón de procesamiento
+                    processButton.disabled = false;
+                }
+            });
+            
+            processButton.addEventListener('click', async () => {
+                if (!blobUrl) return;
+                
+                try {
+                    processButton.disabled = true;
+                    processButton.textContent = 'Procesando...';
+                    
+                    // Procesar la imagen blob
+                    const processedUrl = await window.BlobImageProcessor.processBlobUrl(blobUrl, imagePreview);
+                    
+                    // Mostrar resultado
+                    resultImage.src = processedUrl;
+                    resultInfo.textContent = `URL procesada: ${processedUrl}`;
+                    
+                    // Restaurar botón
+                    processButton.textContent = 'Procesar Imagen';
+                    processButton.disabled = false;
+                } catch (error) {
+                    console.error('Error al procesar imagen:', error);
+                    resultInfo.textContent = `Error: ${error.message}`;
+                    processButton.textContent = 'Procesar Imagen';
+                    processButton.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html> 
