@@ -321,7 +321,7 @@ async function handlePost(req, res) {
           const imageResults = [];
           for (const img of imagesToProcess) {
             try {
-              const imageUrl = await saveImageToAirtable(base, img.imageId, img.imageData);
+              const imageUrl = await saveImageToBlob(img.imageId, img.imageData);
               if (imageUrl) {
                 imageResults.push({
                   questionId: img.questionId,
@@ -354,8 +354,7 @@ async function handlePost(req, res) {
               // Guardar las preguntas actualizadas
               await base(tableName).update(testId, {
                 fields: {
-                  [FIELDS.QUESTIONS]: JSON.stringify(updatedQuestions),
-                  [FIELDS.IMAGES]: 'processed'
+                  [FIELDS.QUESTIONS]: JSON.stringify(updatedQuestions)
                 }
               });
               
@@ -392,15 +391,13 @@ async function handlePost(req, res) {
 }
 
 // Función para guardar una imagen usando Vercel Blob Storage
-async function saveImageToAirtable(base, imageId, imageData) {
+async function saveImageToBlob(imageId, imageData) {
   try {
     // Si falta algún dato necesario, simplemente devolver una URL vacía
     if (!imageId || !imageData) {
       console.log('Skipping image upload due to missing data');
       return '';
     }
-
-    const tableImages = process.env.AIRTABLE_TABLE_IMAGES || 'Images';
     
     // Extraer información de la imagen base64
     let fileName, mimeType, base64Content;
@@ -433,7 +430,7 @@ async function saveImageToAirtable(base, imageId, imageData) {
     }
     
     try {
-      // NUEVO ENFOQUE: Usar Vercel Blob Storage
+      // Usar Vercel Blob Storage
       const { put } = require('@vercel/blob');
       
       console.log(`Uploading image ${imageId} to Vercel Blob Storage`);
@@ -453,54 +450,6 @@ async function saveImageToAirtable(base, imageId, imageData) {
       }
       
       console.log(`Successfully uploaded image to Vercel Blob: ${blob.url}`);
-      
-      // Paso 2: Crear o actualizar el registro en Airtable con la URL del blob
-      // Primero verificar si ya existe este registro
-      const existingRecords = await base(tableImages)
-        .select({
-          filterByFormula: `{ID}="${imageId}"`,
-          maxRecords: 1
-        })
-        .all();
-      
-      let record;
-      
-      if (existingRecords.length > 0) {
-        // Actualizar registro existente con la URL del blob
-        const recordId = existingRecords[0].id;
-        console.log(`Updating existing record for image ${imageId} with Blob URL`);
-        
-        record = await base(tableImages).update(recordId, {
-          BlobURL: blob.url,
-          Size: blob.size,
-          ContentType: blob.contentType,
-          Timestamp: new Date().toISOString()
-        });
-      } else {
-        // Crear nuevo registro con la URL del blob
-        console.log(`Creating new record for image ${imageId} with Blob URL`);
-        
-        const records = await base(tableImages).create([
-          {
-            fields: {
-              ID: imageId,
-              BlobURL: blob.url,
-              Size: blob.size,
-              ContentType: blob.contentType,
-              Timestamp: new Date().toISOString()
-            }
-          }
-        ]);
-        
-        if (!records || records.length === 0) {
-          console.error('Failed to create record in Airtable');
-          return blob.url; // Devolvemos la URL del blob aunque falle el registro en Airtable
-        }
-        
-        record = records[0];
-      }
-      
-      console.log(`Successfully recorded image ${imageId} in Airtable with Blob URL`);
       return blob.url;
       
     } catch (uploadError) {
@@ -509,8 +458,58 @@ async function saveImageToAirtable(base, imageId, imageData) {
       return '';
     }
   } catch (error) {
-    console.error('Error in saveImageToAirtable:', error);
+    console.error('Error in saveImageToBlob:', error);
     return '';
+  }
+}
+
+// Manejador para la ruta DELETE /api/tests/:id
+async function handleDelete(req, res) {
+  try {
+    // Extraer el ID del test de la URL (formato: /api/tests/ID)
+    const urlParts = req.url.split('/');
+    const testId = urlParts[urlParts.length - 1];
+    
+    if (!testId) {
+      return res.status(400).json({ error: 'Test ID is required' });
+    }
+    
+    console.log(`Deleting test with ID: ${testId}`);
+    
+    const base = getAirtableBase();
+    const tableName = process.env.AIRTABLE_TABLE_NAME || 'Tests';
+    
+    // Primero, obtener el test para recuperar sus datos (especialmente imágenes)
+    let test;
+    try {
+      test = await base(tableName).find(testId);
+    } catch (findError) {
+      console.error(`Error finding test with ID ${testId}:`, findError);
+      return res.status(404).json({ error: `Test with ID ${testId} not found` });
+    }
+    
+    // Eliminar el test de Airtable
+    try {
+      await base(tableName).destroy(testId);
+      console.log(`Successfully deleted test with ID: ${testId}`);
+    } catch (deleteError) {
+      console.error(`Error deleting test with ID ${testId}:`, deleteError);
+      return res.status(500).json({ 
+        error: 'Failed to delete test',
+        details: deleteError.message 
+      });
+    }
+    
+    return res.status(200).json({ 
+      success: true,
+      message: `Test with ID ${testId} successfully deleted`
+    });
+  } catch (error) {
+    console.error('Error in handleDelete:', error);
+    return res.status(500).json({ 
+      error: 'Failed to delete test',
+      details: error.message 
+    });
   }
 }
 
@@ -548,6 +547,8 @@ module.exports = async (req, res) => {
       return await handleGet(req, res);
     } else if (req.method === 'POST') {
       return await handlePost(req, res);
+    } else if (req.method === 'DELETE') {
+      return await handleDelete(req, res);
     } else {
       return res.status(405).json({ error: 'Method not allowed' });
     }
