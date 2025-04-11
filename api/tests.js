@@ -466,7 +466,8 @@ async function saveImageToBlob(imageId, imageData) {
 // Manejador para la ruta DELETE /api/tests/:id
 async function handleDelete(req, res) {
   try {
-    console.log(`Processing DELETE with URL: ${req.url}`);
+    console.log(`[DELETE] Processing request with URL: ${req.url}`);
+    console.log(`[DELETE] Headers:`, JSON.stringify(req.headers, null, 2));
     
     // Extraer el ID del test de la URL
     let testId;
@@ -476,26 +477,39 @@ async function handleDelete(req, res) {
       // Formato: /api/tests/ID o /api/tests/ID?param=value
       const urlParts = req.url.split('/api/tests/')[1];
       testId = urlParts.split('?')[0]; // Eliminar parámetros de consulta si existen
+      console.log(`[DELETE] ID extraído de /api/tests/: ${testId}`);
     } else if (req.url.includes('/tests/')) {
       // Formato: /tests/ID o /tests/ID?param=value (desde el frontend)
       const urlParts = req.url.split('/tests/')[1];
       testId = urlParts.split('?')[0]; // Eliminar parámetros de consulta si existen
+      console.log(`[DELETE] ID extraído de /tests/: ${testId}`);
     } else if (req.query && req.query.id) {
       // Formato: /api/tests?id=ID
       testId = req.query.id;
+      console.log(`[DELETE] ID extraído de query param: ${testId}`);
     } else {
       // Último intento: dividir por /
       const urlParts = req.url.split('/');
       testId = urlParts[urlParts.length - 1].split('?')[0];
+      console.log(`[DELETE] ID extraído como último segmento de la URL: ${testId}`);
     }
     
-    console.log(`Extracted testId: ${testId}`);
+    // Si después de todo no hay un ID, intentar recuperarlo directamente de la URL
+    if (!testId && req.url) {
+      // Extracción con regex (busca cualquier secuencia alfanumérica al final de una URL)
+      const matches = req.url.match(/([A-Za-z0-9_-]+)(\?|$)/);
+      if (matches && matches[1]) {
+        testId = matches[1];
+        console.log(`[DELETE] ID extraído con regex: ${testId}`);
+      }
+    }
     
     if (!testId) {
-      return res.status(400).json({ error: 'Test ID is required' });
+      console.error('[DELETE] No se pudo extraer ID del test de la URL');
+      return res.status(400).json({ error: 'Test ID is required', url: req.url });
     }
     
-    console.log(`Deleting test with ID: ${testId}`);
+    console.log(`[DELETE] Eliminando test con ID: ${testId}`);
     
     const base = getAirtableBase();
     const tableName = process.env.AIRTABLE_TABLE_NAME || 'Tests';
@@ -536,20 +550,32 @@ async function handleDelete(req, res) {
 
 // Handler principal que dirige a la función correcta según el método HTTP
 module.exports = async (req, res) => {
-  // Para todas las solicitudes, establecer cabeceras CORS
-  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  // Manejo específico de CORS
+  const allowedOrigins = [
+    'https://quickbooks-test-black.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ];
   
-  // Configurar CORS para permitir el origen específico
+  const origin = req.headers.origin;
+  
+  // Verificar si el origen está permitido
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // Permitir el origen por defecto si no está en la lista
+    res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  }
+  
+  // Resto de cabeceras CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version'
-  );
+  res.setHeader('Access-Control-Allow-Headers', 
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
   
   // Responder inmediatamente a las solicitudes OPTIONS (preflight)
   if (req.method === 'OPTIONS') {
+    console.log('Handling OPTIONS preflight request from origin:', origin);
     return res.status(200).end();
   }
   
@@ -568,12 +594,16 @@ module.exports = async (req, res) => {
     // Determinar si es una solicitud DELETE con un ID específico
     if (req.method === 'DELETE') {
       // Loggear la URL completa para depuración
-      console.log(`Processing DELETE request for URL: ${req.url}`);
+      console.log(`[ROUTER] Processing DELETE request with URL: ${req.url}`);
       
-      // La ruta DELETE podría venir como /api/tests/ID o como /tests/ID
-      if (req.url.includes('/tests/') || req.url.includes('/api/tests/')) {
-        return await handleDelete(req, res);
-      }
+      // La solicitud DELETE podría venir en cualquiera de estos formatos
+      // 1. /api/tests/ID
+      // 2. /tests/ID
+      // 3. También manejar casos especiales donde la ruta no siga estos patrones
+      
+      // Para evitar problemas, enviamos TODAS las solicitudes DELETE a handleDelete 
+      // y dejamos que esa función extraiga el ID
+      return await handleDelete(req, res);
     }
     
     if (req.method === 'GET') {
