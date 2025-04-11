@@ -18,9 +18,9 @@
     { 
       "src": "/api/tests/([^/]+)",
       "dest": "/api/tests.js",
-      "methods": ["DELETE", "OPTIONS"]
+      "methods": ["GET", "DELETE", "OPTIONS"]
     },
-    { "src": "/api/tests", "dest": "/api/tests.js", "methods": ["GET", "POST", "OPTIONS"] },
+    { "src": "/api/tests", "dest": "/api/tests.js", "methods": ["GET", "POST", "DELETE", "OPTIONS"] },
     { "src": "/api/images", "dest": "/api/images.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/api/airtable-check", "dest": "/api/airtable-check.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/", "dest": "/api/index.js" },
