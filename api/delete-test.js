@@ -21,7 +21,7 @@ const getAirtableBase = () => {
 module.exports = async (req, res) => {
   // Configuración manual de CORS - Igual que en load-tests.js
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'https://tests-system.vercel.app');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
   

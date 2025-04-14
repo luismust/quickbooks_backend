@@ -35,7 +35,7 @@ function ensureHttpsProtocol(url) {
 
 module.exports = async (req, res) => {
   // Configurar CORS
-  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  const origin = req.headers.origin || 'https://tests-system.vercel.app';
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');

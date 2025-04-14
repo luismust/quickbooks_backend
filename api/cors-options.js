@@ -23,7 +23,7 @@ module.exports = (req, res) => {
   
   // Establecer encabezados CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', 'https://quickbooks-test-black.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', 'https://tests-system.vercel.app');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
   res.setHeader('Access-Control-Max-Age', '86400');

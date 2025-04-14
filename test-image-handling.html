@@ -390,12 +390,14 @@
                     const response = await fetch(`${API_URL}/images?action=upload`, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/json',
+                            'Origin': 'https://tests-system.vercel.app'
                         },
                         body: JSON.stringify({
                             imageData: uploadedImageData,
                             fileName: file.name
-                        })
+                        }),
+                        credentials: 'include'
                     });
                     
                     const data = await response.json();
@@ -436,7 +438,12 @@
             
             try {
                 // Hacer una solicitud al endpoint de imágenes sin redirección
-                const response = await fetch(`${API_URL}/images?id=${imageId}`);
+                const response = await fetch(`${API_URL}/images?id=${imageId}`, {
+                    headers: {
+                        'Origin': 'https://tests-system.vercel.app'
+                    },
+                    credentials: 'include'
+                });
                 
                 if (response.ok) {
                     const data = await response.json();
@@ -488,12 +495,14 @@
                         const uploadResponse = await fetch(`${API_URL}/images?action=upload`, {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/json'
+                                'Content-Type': 'application/json',
+                                'Origin': 'https://tests-system.vercel.app'
                             },
                             body: JSON.stringify({
                                 imageData: uploadedImageData,
                                 fileName: 'test_image.jpg'
-                            })
+                            }),
+                            credentials: 'include'
                         });
                         
                         if (uploadResponse.ok) {
@@ -537,9 +546,11 @@
                 const response = await fetch(`${API_URL}/save-test`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Origin': 'https://tests-system.vercel.app'
                     },
-                    body: JSON.stringify(testData)
+                    body: JSON.stringify(testData),
+                    credentials: 'include'
                 });
                 
                 const data = await response.json();
@@ -601,7 +612,12 @@
             
             try {
                 // Cargar el test
-                const response = await fetch(`${API_URL}/load-tests?id=${testId}`);
+                const response = await fetch(`${API_URL}/load-tests?id=${testId}`, {
+                    headers: {
+                        'Origin': 'https://tests-system.vercel.app'
+                    },
+                    credentials: 'include'
+                });
                 
                 if (response.ok) {
                     const testData = await response.json();
