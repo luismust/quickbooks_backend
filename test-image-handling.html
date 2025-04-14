@@ -15,6 +15,7 @@
             max-width: 300px;
             border: 1px solid #ccc;
             margin: 10px 0;
+            display: block;
         }
         .image-container {
             margin-bottom: 20px;
@@ -30,6 +31,16 @@
             color: green;
             font-weight: bold;
         }
+        .warning {
+            color: orange;
+            font-weight: bold;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-radius: 5px;
+        }
         button {
             padding: 8px 16px;
             background-color: #4CAF50;
@@ -38,53 +49,85 @@
             cursor: pointer;
             margin: 5px;
         }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
         textarea {
             width: 100%;
             height: 150px;
             margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        /* Sección para depuración */
+        .debug-section {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .debug-section h3 {
+            margin-top: 0;
         }
     </style>
 </head>
 <body>
     <h1>Test de Manejo de Imágenes</h1>
     
-    <div id="imageUploadTest">
+    <div class="status" id="status"></div>
+    
+    <div id="imageUploadTest" class="image-container">
         <h2>1. Prueba de Subida de Imagen</h2>
         <input type="file" id="imageInput" accept="image/*">
         <button id="uploadImageBtn">Subir Imagen</button>
         <div id="uploadResult"></div>
         <div>
-            <img id="uploadedImage" class="test-image">
+            <h3>Vista previa:</h3>
+            <img id="uploadedImage" class="test-image" alt="Vista previa de imagen subida">
         </div>
     </div>
 
-    <div id="imageIdTest">
+    <div id="imageIdTest" class="image-container">
         <h2>2. Prueba de Carga de Imagen por ID</h2>
         <input type="text" id="imageIdInput" placeholder="ID de imagen">
         <button id="loadImageBtn">Cargar Imagen</button>
         <div id="loadResult"></div>
         <div>
-            <img id="loadedImage" class="test-image">
+            <h3>Vista previa:</h3>
+            <img id="loadedImage" class="test-image" alt="Vista previa de imagen cargada">
         </div>
     </div>
 
-    <div id="testCreation">
+    <div id="testCreation" class="image-container">
         <h2>3. Prueba de Creación de Test con Imagen</h2>
         <button id="createTestBtn">Crear Test con Imagen</button>
         <div id="createResult"></div>
-        <textarea id="testData" readonly></textarea>
+        <textarea id="testData" readonly placeholder="Aquí aparecerán los datos del test..."></textarea>
     </div>
 
-    <div id="testLoading">
+    <div id="testLoading" class="image-container">
         <h2>4. Prueba de Carga de Test</h2>
         <input type="text" id="testIdInput" placeholder="ID del test">
         <button id="loadTestBtn">Cargar Test</button>
         <div id="loadTestResult"></div>
-        <textarea id="loadedTestData" readonly></textarea>
+        <textarea id="loadedTestData" readonly placeholder="Aquí aparecerán los datos del test cargado..."></textarea>
         <div id="imagePreview">
-            <h3>Vista previa de imagen del test</h3>
-            <img id="testImage" class="test-image">
+            <h3>Vista previa de imagen del test:</h3>
+            <img id="testImage" class="test-image" alt="Vista previa de imagen del test">
+            <p id="imgErrorMessages"></p>
         </div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>Depuración de Imágenes</h3>
+        <div>
+            <button id="debugImageBtn">Probar URL Directa</button>
+            <input type="text" id="debugImageUrl" placeholder="URL de imagen para prueba" style="width: 70%;">
+        </div>
+        <div id="debugResult" style="margin-top: 10px;"></div>
     </div>
 
     <script>
@@ -93,6 +136,34 @@
         let uploadedImageData = null;
         let uploadedImageId = null;
         let createdTestId = null;
+        
+        // Función para mostrar estado general
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<p class="${type}">${message}</p>`;
+        }
+        
+        // Inicialización
+        updateStatus('Herramienta de prueba para el manejo de imágenes entre frontend y backend.');
+        
+        // Función para verificar que la imagen carga correctamente
+        function checkImageLoading(imgElement, errorContainer) {
+            imgElement.onload = function() {
+                if (errorContainer) {
+                    errorContainer.innerHTML = '<span class="success">✓ Imagen cargada correctamente</span>';
+                }
+            };
+            imgElement.onerror = function() {
+                if (errorContainer) {
+                    errorContainer.innerHTML = '<span class="error">✗ Error al cargar la imagen</span>';
+                }
+            };
+        }
+        
+        // Inicializar evento para todas las imágenes
+        checkImageLoading(document.getElementById('uploadedImage'));
+        checkImageLoading(document.getElementById('loadedImage'));
+        checkImageLoading(document.getElementById('testImage'), document.getElementById('imgErrorMessages'));
 
         // 1. Prueba de subida de imagen
         document.getElementById('uploadImageBtn').addEventListener('click', async () => {
@@ -161,15 +232,15 @@
             }
             
             try {
-                // Intentar obtener la imagen - usar redirect=1 para probar la redirección directa
-                const imageUrl = `${API_URL}/images?id=${imageId}&redirect=1`;
-                imageElement.src = imageUrl;
-                
-                // También hacer una solicitud normal para ver la respuesta JSON
+                // Hacer una solicitud al endpoint de imágenes sin redirección
                 const response = await fetch(`${API_URL}/images?id=${imageId}`);
                 
                 if (response.ok) {
                     const data = await response.json();
+                    
+                    // Usar directamente la URL del blob en lugar de la redirección
+                    imageElement.src = data.url;
+                    
                     resultDiv.innerHTML = `
                         <p class="success">Imagen cargada correctamente</p>
                         <p>URL: ${data.url}</p>
@@ -179,13 +250,18 @@
                 } else {
                     const data = await response.json();
                     resultDiv.innerHTML = `<p class="error">Error al cargar: ${data.error}</p>`;
+                    
+                    // Intentar cargarla con redirección como fallback
+                    const imageUrl = `${API_URL}/images?id=${imageId}&redirect=1`;
+                    resultDiv.innerHTML += `<p>Intentando método alternativo...</p>`;
+                    imageElement.src = imageUrl;
                 }
             } catch (error) {
                 resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
             }
         });
 
-        // 3. Prueba de creación de test con imagen
+        // 3. Prueba de Creación de Test con Imagen
         document.getElementById('createTestBtn').addEventListener('click', async () => {
             const resultDiv = document.getElementById('createResult');
             
@@ -195,19 +271,25 @@
             }
             
             try {
+                // Generar un ID único para esta pregunta que incluya la fecha
+                const questionId = "q_" + new Date().getTime();
+                
                 // Crear un test simple con la imagen subida
                 const testData = {
                     name: "Test de Imagen " + new Date().toISOString(),
                     description: "Test creado para probar el manejo de imágenes",
                     questions: [
                         {
-                            id: "q1",
+                            id: questionId,  // ID único y predecible para la pregunta
                             title: "Pregunta con Imagen",
                             description: "Esta pregunta tiene una imagen asociada",
                             type: "clickArea",
-                            // Usar el ID de imagen o los datos directamente
-                            imageId: uploadedImageId,
-                            image: uploadedImageData
+                            // Si tenemos imageId de una subida previa, usarlo; si no, usaremos el ID de la pregunta
+                            imageId: uploadedImageId || questionId,
+                            // Incluir los datos de la imagen también
+                            image: uploadedImageData,
+                            // Incluir el dato en _localFile para compatibilidad
+                            _localFile: uploadedImageData
                         }
                     ]
                 };
@@ -229,10 +311,17 @@
                     createdTestId = data.id;
                     resultDiv.innerHTML = `
                         <p class="success">Test creado correctamente</p>
-                        <p>ID: ${data.id}</p>
+                        <p>ID del test: ${data.id}</p>
+                        <p>ID de la pregunta: ${questionId}</p>
                         <p>Primera pregunta tiene imageId: ${data.questions[0].imageId || 'No disponible'}</p>
                         <p>Primera pregunta tiene image: ${data.questions[0].image ? 'Sí' : 'No'}</p>
                     `;
+                    
+                    // Si la respuesta incluye una URL de imagen, mostrarla
+                    if (data.questions[0].image) {
+                        document.getElementById('testImage').src = data.questions[0].image;
+                        resultDiv.innerHTML += `<p>URL de la imagen: ${data.questions[0].image}</p>`;
+                    }
                     
                     // Actualizar el campo de ID para la siguiente prueba
                     document.getElementById('testIdInput').value = data.id;
@@ -265,16 +354,56 @@
                     const testData = await response.json();
                     document.getElementById('loadedTestData').value = JSON.stringify(testData, null, 2);
                     
-                    if (testData.questions && testData.questions.length > 0 && testData.questions[0].image) {
-                        document.getElementById('testImage').src = testData.questions[0].image;
-                        
+                    if (testData.questions && testData.questions.length > 0) {
+                        const question = testData.questions[0];
                         resultDiv.innerHTML = `
                             <p class="success">Test cargado correctamente</p>
                             <p>Test ID: ${testData.id}</p>
                             <p>Nombre: ${testData.name}</p>
-                            <p>Primera pregunta tiene imageId: ${testData.questions[0].imageId || 'No disponible'}</p>
-                            <p>Primera pregunta tiene image URL: ${testData.questions[0].image}</p>
+                            <p>Primera pregunta tiene imageId: ${question.imageId || 'No disponible'}</p>
+                            <p>Primera pregunta tiene image URL: ${question.image || 'No disponible'}</p>
                         `;
+                        
+                        // Si tenemos una URL de imagen, intentar cargarla directamente de Vercel Blob
+                        if (question.imageId) {
+                            // Intentar primero con el endpoint directo sin redirección
+                            try {
+                                const imgResponse = await fetch(`${API_URL}/images?id=${question.imageId}`);
+                                if (imgResponse.ok) {
+                                    const imgData = await imgResponse.json();
+                                    // Usar directamente la URL del blob en lugar de la redirección
+                                    if (imgData.url) {
+                                        document.getElementById('testImage').src = imgData.url;
+                                        resultDiv.innerHTML += `<p class="success">Imagen cargada directamente desde Vercel Blob</p>`;
+                                    } else if (question.image) {
+                                        document.getElementById('testImage').src = question.image;
+                                        resultDiv.innerHTML += `<p class="success">Usando URL de imagen del test</p>`;
+                                    }
+                                } else {
+                                    // Si falla, usar la URL proporcionada en el test
+                                    if (question.image) {
+                                        document.getElementById('testImage').src = question.image;
+                                        resultDiv.innerHTML += `<p class="success">Usando URL de imagen del test (API directa falló)</p>`;
+                                    } else {
+                                        resultDiv.innerHTML += `<p class="error">No se pudo cargar la imagen</p>`;
+                                    }
+                                }
+                            } catch (imgError) {
+                                // Si falla por cualquier razón, intentar con la URL del test
+                                if (question.image) {
+                                    document.getElementById('testImage').src = question.image;
+                                    resultDiv.innerHTML += `<p class="success">Usando URL de imagen del test (excepción en API)</p>`;
+                                } else {
+                                    resultDiv.innerHTML += `<p class="error">Error al cargar la imagen: ${imgError.message}</p>`;
+                                }
+                            }
+                        } else if (question.image) {
+                            // Si solo tenemos URL pero no ID
+                            document.getElementById('testImage').src = question.image;
+                            resultDiv.innerHTML += `<p class="success">Usando URL de imagen sin imageId</p>`;
+                        } else {
+                            resultDiv.innerHTML += `<p class="error">El test no tiene imágenes</p>`;
+                        }
                     } else {
                         resultDiv.innerHTML = `
                             <p class="error">El test no tiene preguntas con imágenes</p>
@@ -287,6 +416,55 @@
             } catch (error) {
                 resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
             }
+        });
+
+        // Código de depuración de imágenes
+        document.getElementById('debugImageBtn').addEventListener('click', async () => {
+            const urlInput = document.getElementById('debugImageUrl');
+            const resultDiv = document.getElementById('debugResult');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                resultDiv.innerHTML = '<p class="error">Por favor ingresa una URL</p>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<p>Probando carga directa de URL...</p>';
+            
+            // Crear una nueva imagen para probar la carga
+            const img = new Image();
+            img.className = 'test-image';
+            img.crossOrigin = 'anonymous';  // Intentar con CORS
+            
+            img.onload = function() {
+                resultDiv.innerHTML = '<p class="success">URL cargada correctamente</p>';
+                resultDiv.appendChild(img);
+            };
+            
+            img.onerror = function() {
+                resultDiv.innerHTML = '<p class="error">Error al cargar la URL directamente</p>';
+                
+                // Intentar con un iframe como alternativa
+                resultDiv.innerHTML += '<p>Intentando con iframe...</p>';
+                
+                const iframe = document.createElement('iframe');
+                iframe.style.width = '300px';
+                iframe.style.height = '200px';
+                iframe.style.border = '1px solid #ccc';
+                
+                iframe.onload = function() {
+                    resultDiv.innerHTML += '<p class="success">Iframe cargado</p>';
+                };
+                
+                iframe.onerror = function() {
+                    resultDiv.innerHTML += '<p class="error">Error al cargar iframe</p>';
+                };
+                
+                iframe.src = url;
+                resultDiv.appendChild(iframe);
+            };
+            
+            img.src = url;
         });
     </script>
 </body>

@@ -27,12 +27,17 @@
     { 
       "src": "/api/images", 
       "dest": "/api/images.js", 
-      "methods": ["GET", "OPTIONS"],
+      "methods": ["GET", "POST", "OPTIONS"],
       "headers": {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Origin"
       }
+    },
+    { 
+      "src": "/api/process-blob-url", 
+      "dest": "/api/process-blob-url.js", 
+      "methods": ["POST", "OPTIONS"] 
     },
     { "src": "/api/airtable-check", "dest": "/api/airtable-check.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/", "dest": "/api/index.js" },

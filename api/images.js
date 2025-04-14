@@ -9,11 +9,8 @@ function generateUniqueId() {
 
 // Manejador para el endpoint de imágenes
 module.exports = async (req, res) => {
-  // Establecer cabeceras CORS
-  const origin = req.headers.origin || '*';
-  
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  // Establecer cabeceras CORS - aceptar cualquier origen para las imágenes
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
@@ -60,9 +57,27 @@ module.exports = async (req, res) => {
         
         // Agregar encabezados para caché y CORS antes de redireccionar
         res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 24 horas
-        res.setHeader('Vary', 'Origin');
         
-        return res.redirect(imageUrl);
+        // Usar un iframe o una etiqueta img directa podría funcionar mejor que una redirección
+        if (redirect === 'iframe') {
+          return res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Image ${id}</title>
+              <style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden}img{max-width:100%;max-height:100%;}</style>
+            </head>
+            <body>
+              <img src="${imageUrl}" alt="Image ${id}" />
+            </body>
+            </html>
+          `);
+        } else if (redirect === 'html') {
+          return res.send(`<img src="${imageUrl}" alt="Image ${id}" style="max-width:100%" />`);
+        } else {
+          // Redirección normal
+          return res.redirect(imageUrl);
+        }
       }
       
       return res.status(200).json({
