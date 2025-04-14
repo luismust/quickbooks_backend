@@ -63,14 +63,18 @@ module.exports = async (req, res) => {
       // Limpiar el ID - si viene con formato q_123456 necesitamos quitarle el prefijo q_
       let cleanId = id;
       if (id.startsWith('q_')) {
-        cleanId = id;
+        // Si empieza con q_, es posible que sea un ID de pregunta, intentar extraer el ID real
+        console.log(`[IMAGES] Input ID is question format: ${id}, cleaning prefix q_`);
+        cleanId = id.substring(2); // quitar el prefijo q_
       }
       
       // Si el ID no tiene el prefijo 'image_', hacer búsquedas con y sin él
       let searchResults = [];
+      let searchPrefixes = [];
       
       // Búsqueda 1: Buscar con prefijo image_ + ID
       let searchPrefix1 = cleanId.startsWith('image_') ? cleanId : `image_${cleanId}`;
+      searchPrefixes.push(searchPrefix1);
       console.log(`[IMAGES] Search attempt 1: ${searchPrefix1}`);
       
       try {
@@ -87,7 +91,30 @@ module.exports = async (req, res) => {
         console.error(`[IMAGES] Error in search 1:`, err);
       }
       
-      // Búsqueda 2: Buscar sin ningún prefijo (patrones adicionales)
+      // Búsqueda 2: Buscar sin prefijo, posiblemente el ID ya sea el nombre completo
+      if (searchResults.length === 0 && !cleanId.startsWith('image_')) {
+        try {
+          const blobs1a = await list({
+            limit: 100
+          });
+          
+          if (blobs1a.blobs && blobs1a.blobs.length > 0) {
+            // Buscar exactamente el pathname
+            const exactMatches = blobs1a.blobs.filter(blob => 
+              blob.pathname === cleanId
+            );
+            
+            if (exactMatches.length > 0) {
+              searchResults = searchResults.concat(exactMatches);
+              console.log(`[IMAGES] Found ${exactMatches.length} blobs with exact pathname ${cleanId}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[IMAGES] Error in pathname search:`, err);
+        }
+      }
+      
+      // Búsqueda 3: Buscar con un patrón más amplio
       if (searchResults.length === 0) {
         try {
           // Buscar patrones que puedan contener el ID en cualquier parte del nombre
@@ -108,7 +135,33 @@ module.exports = async (req, res) => {
             }
           }
         } catch (err) {
-          console.error(`[IMAGES] Error in search 2:`, err);
+          console.error(`[IMAGES] Error in search 3:`, err);
+        }
+      }
+      
+      // Búsqueda 4: Si llegamos hasta aquí sin resultados y el ID es largo, intentar diferentes longitudes
+      if (searchResults.length === 0 && cleanId.length > 8) {
+        for (let length of [16, 12, 8]) {
+          if (cleanId.length >= length) {
+            const partialId = cleanId.substring(0, length);
+            searchPrefixes.push(`image_${partialId}`);
+            
+            try {
+              console.log(`[IMAGES] Trying with shorter ID: image_${partialId}`);
+              const blobsPartial = await list({
+                prefix: `image_${partialId}`,
+                limit: 5
+              });
+              
+              if (blobsPartial.blobs && blobsPartial.blobs.length > 0) {
+                searchResults = searchResults.concat(blobsPartial.blobs);
+                console.log(`[IMAGES] Found ${blobsPartial.blobs.length} blobs with prefix image_${partialId}`);
+                break; // Si encontramos algo, no seguir buscando
+              }
+            } catch (err) {
+              console.error(`[IMAGES] Error searching with partial ID ${partialId}:`, err);
+            }
+          }
         }
       }
       
@@ -120,7 +173,7 @@ module.exports = async (req, res) => {
           error: 'Image not found', 
           id: id,
           cleanId: cleanId,
-          searchPatterns: [searchPrefix1]
+          searchPatterns: searchPrefixes
         });
       }
       
