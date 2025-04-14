@@ -98,10 +98,46 @@ async function saveImageToBlob(imageData, customId = null) {
     const base64Content = matches[2];
     const imageBuffer = Buffer.from(base64Content, 'base64');
     
-    // Usar el ID personalizado si se proporciona, o generar uno nuevo
+    // IMPORTANTE: Siempre usar el ID personalizado si se proporciona
+    // Este es el ID que viene del frontend, y debe mantenerse consistente
     const imageId = customId || crypto.randomBytes(8).toString('hex');
+    console.log(`[SAVE-TEST] Using image ID: ${imageId} (${customId ? 'provided' : 'generated'})`);
     
-    // Generar un nombre de archivo consistente con el formato esperado por load-tests.js
+    // Calcular hash del contenido para verificar duplicados
+    const contentHash = crypto.createHash('md5').update(base64Content).digest('hex').substring(0, 16);
+    console.log(`[SAVE-TEST] Image content hash: ${contentHash}`);
+    
+    // Primero verificar si la imagen con este hash ya existe
+    try {
+      const existingBlobs = await blobModule.list({
+        limit: 10
+      });
+      
+      // Buscar si ya existe una imagen con el mismo contenido
+      if (existingBlobs && existingBlobs.blobs && existingBlobs.blobs.length > 0) {
+        // Intentar buscar por ID exacto primero
+        const exactMatch = existingBlobs.blobs.find(blob => 
+          blob.pathname === `image_${imageId}.${mimeType.split('/')[1] || 'jpg'}`
+        );
+        
+        if (exactMatch) {
+          console.log(`[SAVE-TEST] Found existing image with exact ID match: ${exactMatch.pathname}`);
+          return {
+            url: exactMatch.url,
+            id: imageId, // Mantener el ID original
+            size: exactMatch.size,
+            type: mimeType,
+            fileName: exactMatch.pathname,
+            reused: true
+          };
+        }
+      }
+    } catch (listError) {
+      console.warn(`[SAVE-TEST] Error checking for existing images: ${listError.message}`);
+      // Continuar con la carga normal si no podemos verificar
+    }
+    
+    // Generar un nombre de archivo consistente con el formato esperado
     const extension = mimeType.split('/')[1] || 'jpg';
     const fileName = `image_${imageId}.${extension}`;
     
@@ -125,10 +161,10 @@ async function saveImageToBlob(imageData, customId = null) {
     
     console.log(`[SAVE-TEST] Imagen guardada con éxito. URL: ${blob.url}`);
     
-    // Devolver información completa de la imagen
+    // Devolver información completa de la imagen, manteniendo el ID original
     return { 
       url: blob.url,
-      id: imageId,  // Solo devolvemos un ID, y es el que usamos en el nombre del archivo
+      id: imageId,  // Mantener el ID proporcionado o generado inicialmente
       size: imageBuffer.length,
       type: mimeType,
       fileName: fileName

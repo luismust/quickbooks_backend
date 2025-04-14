@@ -316,12 +316,12 @@
                 // Generar un ID único para esta pregunta que incluya la fecha
                 const questionId = "q_" + new Date().getTime();
                 
-                // Si ya tenemos un ID de imagen subida, usarlo directamente
-                // Si no, intentaremos cargar la imagen primero para obtener un ID
-                let effectiveImageId = uploadedImageId;
+                // Siempre usar el ID de imagen subido previamente si existe
+                // Este es el ID correcto de la imagen, no generamos otro
+                let imageId = uploadedImageId;
                 
                 // Si no tenemos un ID de imagen pero tenemos los datos, subirla primero
-                if (!effectiveImageId && uploadedImageData) {
+                if (!imageId && uploadedImageData) {
                     resultDiv.innerHTML = '<p>Subiendo imagen primero para obtener un ID...</p>';
                     
                     try {
@@ -338,15 +338,18 @@
                         
                         if (uploadResponse.ok) {
                             const uploadData = await uploadResponse.json();
-                            effectiveImageId = uploadData.imageId;
-                            resultDiv.innerHTML += `<p class="success">Imagen subida con ID: ${effectiveImageId}</p>`;
+                            imageId = uploadData.imageId;
+                            // Guardamos el ID para futuras referencias
+                            uploadedImageId = imageId;
+                            resultDiv.innerHTML += `<p class="success">Imagen subida con ID: ${imageId}</p>`;
                         } else {
-                            resultDiv.innerHTML += `<p class="warning">No se pudo subir la imagen previamente, se usará el ID de la pregunta</p>`;
-                            effectiveImageId = questionId;
+                            const errorData = await uploadResponse.json();
+                            resultDiv.innerHTML += `<p class="error">Error al subir la imagen: ${errorData.error || 'Error desconocido'}</p>`;
+                            return; // No continuar si hay error
                         }
                     } catch (uploadError) {
-                        resultDiv.innerHTML += `<p class="warning">Error al subir imagen: ${uploadError.message}</p>`;
-                        effectiveImageId = questionId;
+                        resultDiv.innerHTML += `<p class="error">Error al subir imagen: ${uploadError.message}</p>`;
+                        return; // No continuar si hay error
                     }
                 }
                 
@@ -360,12 +363,10 @@
                             title: "Pregunta con Imagen",
                             description: "Esta pregunta tiene una imagen asociada",
                             type: "clickArea",
-                            // Usar el ID de imagen efectivo (subido previamente o ahora)
-                            imageId: effectiveImageId,
-                            // Incluir los datos de la imagen también para asegurar que se guarde
-                            image: uploadedImageData,
-                            // Incluir el dato en _localFile para compatibilidad
-                            _localFile: uploadedImageData
+                            // Usar el ID de imagen correcto (subido previamente)
+                            imageId: imageId,
+                            // No incluir los datos si ya tenemos un ID (evita duplicación)
+                            image: imageId ? null : uploadedImageData
                         }
                     ]
                 };
@@ -385,30 +386,32 @@
                 
                 if (response.ok) {
                     createdTestId = data.id;
+                    
+                    // Mostrar resultados con claridad sobre los IDs
+                    const sentImageId = imageId;
+                    const receivedImageId = data.questions[0].imageId;
+                    
+                    // Determinar si los IDs son consistentes
+                    const idsMatch = sentImageId === receivedImageId;
+                    
                     resultDiv.innerHTML = `
                         <p class="success">Test creado correctamente</p>
                         <p>ID del test: ${data.id}</p>
                         <p>ID de la pregunta: ${questionId}</p>
-                        <p>ID de imagen enviado: ${effectiveImageId}</p>
-                        <p>ID de imagen recibido: ${data.questions[0].imageId || 'No disponible'}</p>
+                        <p>ID de imagen enviado: ${sentImageId}</p>
+                        <p>ID de imagen recibido: ${receivedImageId || 'No disponible'}</p>
+                        <p class="${idsMatch ? 'success' : 'error'}">
+                            ${idsMatch 
+                                ? '✓ Los IDs de imagen coinciden correctamente' 
+                                : '❌ ERROR: Los IDs de imagen no coinciden, revisa el código del backend'}
+                        </p>
                     `;
                     
-                    // Si la respuesta incluye una URL de imagen, mostrarla y analizarla
+                    // Si la respuesta incluye una URL de imagen, mostrarla
                     if (data.questions[0].image) {
-                        // Intentar extraer el ID real de la imagen de la URL
-                        let realImageId = null;
-                        if (data.questions[0].image.includes('vercel-blob.com')) {
-                            const matches = data.questions[0].image.match(/image_([^./]+)/);
-                            if (matches && matches[1]) {
-                                realImageId = matches[1];
-                            }
-                        }
-                        
                         createProxyImage(data.questions[0].image, document.getElementById('testImage'));
                         resultDiv.innerHTML += `
                             <p>URL de la imagen: ${data.questions[0].image}</p>
-                            ${realImageId ? `<p class="success">ID real extraído de la URL: ${realImageId}</p>` : ''}
-                            <p class="warning">⚠️ Guardar este ID para futuras referencias: ${realImageId || data.questions[0].imageId}</p>
                         `;
                     }
                     
@@ -446,54 +449,29 @@
                     
                     if (testData.questions && testData.questions.length > 0) {
                         const question = testData.questions[0];
-                        
-                        // Analizar la URL de la imagen para extraer el ID real
-                        let realImageId = null;
-                        if (question.image && question.image.includes('vercel-blob.com')) {
-                            // Buscar en la URL para extraer el ID real de la imagen
-                            const matches = question.image.match(/image_([^./]+)/);
-                            if (matches && matches[1]) {
-                                realImageId = matches[1];
-                            }
-                        }
+                        const imageId = question.imageId;
                         
                         resultDiv.innerHTML = `
                             <p class="success">Test cargado correctamente</p>
                             <p>Test ID: ${testData.id}</p>
                             <p>Nombre: ${testData.name}</p>
                             <p>ID pregunta: ${question.id || 'No disponible'}</p>
-                            <p>ID imagen de la pregunta: ${question.imageId || 'No disponible'}</p>
-                            <p>URL de imagen: ${question.image || 'No disponible'}</p>
-                            ${realImageId ? `<p class="success">ID real de la imagen: ${realImageId}</p>` : ''}
+                            <p>ID imagen: ${imageId || 'No disponible'}</p>
                         `;
                         
-                        // Mostrar información detallada sobre la imagen para depuración
-                        resultDiv.innerHTML += `<div style="margin-top:10px;padding:10px;background:#f8f8f8;border-radius:5px;">
-                            <h4>Información de depuración:</h4>
-                            <p>ID a usar para carga: ${realImageId || question.imageId || 'No disponible'}</p>
-                        </div>`;
-                        
-                        // Si tenemos una URL o un ID de imagen, intentar cargarla con nuestro proxy
-                        imgErrorMessages.innerHTML = '<p>Intentando cargar imagen...</p>';
-                        
-                        const imgElement = document.getElementById('testImage');
-                        
-                        // Primero intentar con el ID real extraído de la URL
-                        if (realImageId) {
-                            imgErrorMessages.innerHTML += `<p>Usando ID real extraído de la URL: ${realImageId}</p>`;
+                        // Si tenemos un ID de imagen, intentar cargarla con él
+                        if (imageId) {
+                            imgErrorMessages.innerHTML = '<p>Cargando imagen usando el ID...</p>';
+                            
+                            const imgElement = document.getElementById('testImage');
                             imgElement.crossOrigin = "anonymous";
-                            imgElement.src = `${API_URL}/images?id=${realImageId}&redirect=data&t=${new Date().getTime()}`;
-                        }
-                        // Si no hay ID real pero hay URL, usar el proxy para cargarla
-                        else if (question.image) {
-                            imgErrorMessages.innerHTML += `<p>Usando URL con proxy: ${question.image}</p>`;
-                            createProxyImage(question.image, imgElement);
-                        }
-                        // Como último recurso, usar el imageId de la pregunta
-                        else if (question.imageId) {
-                            imgErrorMessages.innerHTML += `<p>Usando ID de la pregunta como fallback: ${question.imageId}</p>`;
-                            imgElement.crossOrigin = "anonymous";
-                            imgElement.src = `${API_URL}/images?id=${question.imageId}&redirect=data&t=${new Date().getTime()}`;
+                            // Usar el ID directamente con nuestro endpoint de imágenes
+                            imgElement.src = `${API_URL}/images?id=${imageId}&redirect=data&t=${new Date().getTime()}`;
+                            
+                            // Mostrar URL completa si la hay
+                            if (question.image) {
+                                resultDiv.innerHTML += `<p>URL de imagen: ${question.image}</p>`;
+                            }
                         }
                         else {
                             imgErrorMessages.innerHTML = `<p class="error">No hay información de imagen disponible</p>`;
