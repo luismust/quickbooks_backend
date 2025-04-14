@@ -107,14 +107,24 @@ module.exports = async (req, res) => {
             let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
             apiUrl = ensureHttpsProtocol(apiUrl);
             
-            // Usar redirección directa para que el frontend reciba la imagen directamente
-            const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
-            processedQuestion.image = imageUrl;
+            // Dos opciones de URL: 
+            // 1. Una URL directa a la API con redirección (más segura pero puede tener problemas CORS)
+            const imageApiUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
+            
+            // 2. Verificar si tenemos la URL de Vercel Blob directa almacenada
+            if (question.blobUrl) {
+              // Si tenemos la URL directa del blob, usarla preferentemente
+              processedQuestion.image = question.blobUrl;
+              processedQuestion.imageApiUrl = imageApiUrl; // También incluir la URL de la API como respaldo
+              console.log(`[LOAD-TESTS] Using direct blob URL: ${question.blobUrl}`);
+            } else {
+              // Si no tenemos la URL del blob, usar la URL de la API
+              processedQuestion.image = imageApiUrl;
+              console.log(`[LOAD-TESTS] Generated API URL: ${imageApiUrl} for imageId: ${question.imageId}`);
+            }
             
             // Mantener el mismo ID para evitar duplicaciones
             processedQuestion.imageId = question.imageId;
-            
-            console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for imageId: ${question.imageId}`);
           }
           // Si hay una imagen que ya es una URL HTTP, mantenerla
           else if (question.image && question.image.startsWith('http')) {

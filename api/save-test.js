@@ -467,7 +467,9 @@ module.exports = async (req, res) => {
       ...testToSave,
       id: testId,
       questions: simplifiedQuestions.map(q => {
-        // Asegurarse de que cada pregunta en la respuesta tenga su imageId
+        const questionWithImage = { ...q };
+        
+        // Asegurarse de que cada pregunta en la respuesta tenga información de imagen adecuada
         if (q.imageId) {
           // Generar URL para las imágenes en la respuesta
           let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
@@ -475,14 +477,29 @@ module.exports = async (req, res) => {
             apiUrl = `https://${apiUrl}`;
           }
           
-          // Generar URL de imagen para el frontend
-          const imageUrl = `${apiUrl}/api/images?id=${q.imageId}&redirect=1`;
-          return {
-            ...q,
-            image: imageUrl // Incluir la URL completa de la imagen
-          };
+          // Generar URL de imagen para el frontend - URL de la API
+          const imageApiUrl = `${apiUrl}/api/images?id=${q.imageId}&redirect=1`;
+          
+          // Buscar en las imágenes procesadas para ver si tenemos una URL directa
+          const processedImage = imagesToProcess.find(img => img.imageId === q.imageId);
+          
+          // Si encontramos la imagen procesada, incluir información adicional para diagnóstico
+          if (processedImage) {
+            questionWithImage.imageUploadStatus = 'pending';
+            questionWithImage.imageDataSize = processedImage.imageData 
+              ? processedImage.imageData.length 
+              : 'unknown';
+          }
+          
+          // Configurar las URL de imagen
+          questionWithImage.image = imageApiUrl; // URL principal a través de la API
+          questionWithImage.imageApiUrl = imageApiUrl; // URL de respaldo a través de la API
+          
+          // Incluir instrucciones para el frontend
+          questionWithImage.imageInstructions = "El frontend debe intentar cargar primero 'image' y, si falla, intentar con 'imageApiUrl'";
         }
-        return q;
+        
+        return questionWithImage;
       })
     };
     
@@ -550,20 +567,24 @@ module.exports = async (req, res) => {
                 if (imageResult) {
                   updatedCount++;
                   console.log(`[SAVE-TEST:BACKGROUND] Updating question ${q.id} with image URL: ${imageResult.url}`);
-                  // Actualizar la URL de la imagen
-                  q.image = imageResult.url;
                   
-                  // Guardar también el ID de la imagen
+                  // Guardar la URL directa del blob - Importante para el frontend
+                  q.blobUrl = imageResult.url;
+                  
+                  // Mantener también la URL de API para compatibilidad
+                  let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+                  if (!apiUrl.startsWith('http')) {
+                    apiUrl = `https://${apiUrl}`;
+                  }
+                  q.image = `${apiUrl}/api/images?id=${imageResult.id}&redirect=1`;
+                  
+                  // Guardar el ID de la imagen
                   q.imageId = imageResult.id;
                   
-                  // Guardar también el tamaño de la imagen
-                  q.size = imageResult.size;
-                  
-                  // Guardar también el tipo de la imagen
-                  q.type = imageResult.type;
-                  
-                  // Guardar también el nombre del archivo
-                  q.fileName = imageResult.fileName;
+                  // Guardar metadatos adicionales
+                  q.imageSize = imageResult.size;
+                  q.imageType = imageResult.type;
+                  q.imageFileName = imageResult.fileName;
                 }
               });
               

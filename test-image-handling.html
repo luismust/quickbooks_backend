@@ -138,7 +138,7 @@
         let createdTestId = null;
         
         // Función para crear un elemento de imagen con manejo mejorado de CORS
-        function createProxyImage(url, element) {
+        function createProxyImage(url, element, options = {}) {
             // Si ya tenemos un elemento proporcionado, usarlo. Si no, crear uno nuevo
             const img = element || new Image();
             
@@ -147,6 +147,57 @@
             
             // Agregar timestamp para evitar caché
             const timestamp = Date.now();
+            
+            // Extraer opciones adicionales
+            const { preferDirect = true, fallback } = options;
+            
+            // Verificar si nos pasaron un objeto en lugar de una URL (para preguntas)
+            if (url && typeof url === 'object') {
+                // Priorizar la URL directa al blob si existe y está permitido
+                if (preferDirect && url.blobUrl) {
+                    console.log(`Usando URL directa de blob: ${url.blobUrl}`);
+                    createProxyImage(url.blobUrl, img, { 
+                        preferDirect: false, 
+                        fallback: url.imageApiUrl || url.image 
+                    });
+                    return img;
+                }
+                // Si hay imageApiUrl como respaldo, usarla
+                else if (url.imageApiUrl) {
+                    console.log(`Usando URL de API: ${url.imageApiUrl}`);
+                    createProxyImage(url.imageApiUrl, img, { 
+                        preferDirect: false,
+                        fallback: url.image
+                    });
+                    return img;
+                }
+                // Como último recurso, usar el campo image
+                else if (url.image) {
+                    console.log(`Usando URL de image: ${url.image}`);
+                    createProxyImage(url.image, img, { 
+                        preferDirect: false 
+                    });
+                    return img;
+                }
+                // Si no hay URL, mostrar mensaje de error
+                else {
+                    const errorContainer = document.createElement('div');
+                    errorContainer.textContent = "No se encontró URL de imagen válida";
+                    errorContainer.style.color = 'red';
+                    errorContainer.style.padding = '10px';
+                    errorContainer.style.border = '1px solid red';
+                    if (img.parentNode) {
+                        img.parentNode.replaceChild(errorContainer, img);
+                    }
+                    return errorContainer;
+                }
+            }
+            
+            // A partir de aquí asumimos que url es un string
+            if (!url || typeof url !== 'string') {
+                console.error('URL de imagen inválida o no proporcionada', url);
+                return img;
+            }
             
             // Detectar tipo de URL y crear la mejor estrategia de carga
             let finalUrl;
@@ -158,6 +209,17 @@
             errorContainer.style.marginTop = '5px';
             
             if (img.parentNode) {
+                // Buscar si ya existe un contenedor de error
+                const existingError = Array.from(img.parentNode.children).find(
+                    el => el.classList.contains('image-error-container')
+                );
+                
+                if (existingError) {
+                    errorContainer.textContent = existingError.textContent;
+                    img.parentNode.removeChild(existingError);
+                }
+                
+                errorContainer.classList.add('image-error-container');
                 img.parentNode.appendChild(errorContainer);
             }
             
@@ -183,6 +245,14 @@
                 img.onerror = function() {
                     if (attemptCount >= maxAttempts) {
                         errorContainer.textContent = `✗ Error al cargar imagen después de ${maxAttempts} intentos`;
+                        
+                        // Si tenemos una URL de fallback definida en las opciones, usarla
+                        if (fallback && typeof fallback === 'string') {
+                            errorContainer.textContent += '. Intentando URL alternativa...';
+                            console.log(`Intentando URL de fallback: ${fallback}`);
+                            // Crear una nueva imagen con la URL de fallback
+                            createProxyImage(fallback, img, { preferDirect: false });
+                        }
                         return;
                     }
                     
@@ -539,43 +609,30 @@
                     
                     if (testData.questions && testData.questions.length > 0) {
                         const question = testData.questions[0];
-                        const imageId = question.imageId;
                         
-                        resultDiv.innerHTML = `
+                        // Construir información sobre la pregunta
+                        let questionInfo = `
                             <p class="success">Test cargado correctamente</p>
                             <p>Test ID: ${testData.id}</p>
                             <p>Nombre: ${testData.name}</p>
                             <p>ID pregunta: ${question.id || 'No disponible'}</p>
-                            <p>ID imagen: ${imageId || 'No disponible'}</p>
+                            <p>ID imagen: ${question.imageId || 'No disponible'}</p>
                         `;
                         
+                        // Información sobre URLs disponibles
+                        if (question.image) questionInfo += `<p>URL image: ${question.image}</p>`;
+                        if (question.imageApiUrl) questionInfo += `<p>URL API: ${question.imageApiUrl}</p>`;
+                        if (question.blobUrl) questionInfo += `<p>URL Blob: ${question.blobUrl}</p>`;
+                        
+                        resultDiv.innerHTML = questionInfo;
+                        
                         // Si tenemos datos de imagen, intentar cargarla
-                        if (imageId || question.image) {
-                            imgErrorMessages.innerHTML = '<p>Cargando imagen...</p>';
-                            const imgElement = document.getElementById('testImage');
-                            
-                            // Probar diferentes métodos para cargar la imagen
-                            if (question.image) {
-                                // Intentar usar directamente la URL con nuestro proxy mejorado
-                                imgErrorMessages.innerHTML += `<p>Usando URL de imagen con método binario</p>`;
-                                createProxyImage(question.image, imgElement);
-                                
-                                // Mostrar la URL para referencia
-                                resultDiv.innerHTML += `<p>URL de imagen: ${question.image}</p>`;
-                            } 
-                            else if (imageId) {
-                                // Si no hay URL pero tenemos ID, usar el endpoint directo
-                                imgErrorMessages.innerHTML += `<p>Usando ID de imagen: ${imageId}</p>`;
-                                // Crear una URL con el endpoint de imágenes
-                                const imageUrl = `${API_URL}/images?id=${imageId}&redirect=data&t=${Date.now()}`;
-                                createProxyImage(imageUrl, imgElement);
-                            }
-                            else {
-                                imgErrorMessages.innerHTML = `<p class="error">No hay información de imagen disponible</p>`;
-                            }
-                        } else {
-                            imgErrorMessages.innerHTML = `<p class="error">No hay información de imagen disponible</p>`;
-                        }
+                        const imgElement = document.getElementById('testImage');
+                        imgErrorMessages.innerHTML = '<p>Intentando cargar imagen...</p>';
+                        
+                        // Pasar el objeto question completo a createProxyImage
+                        // para que pueda usar todas las URLs disponibles
+                        createProxyImage(question, imgElement);
                     } else {
                         resultDiv.innerHTML = `
                             <p class="error">El test no tiene preguntas con imágenes</p>
