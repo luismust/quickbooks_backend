@@ -228,11 +228,12 @@ function debugImageData(questionId, question) {
 
 // Manejador principal
 module.exports = async (req, res) => {
-  // Configuración manual de CORS
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'https://quickbooks-test-black.vercel.app');
+  // Configurar CORS para permitir solicitudes entre subdominios de Vercel
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   
   // Manejar preflight OPTIONS
   if (req.method === 'OPTIONS') {

@@ -10,25 +10,34 @@ async function serveImageAsBinary(url, res, req) {
     console.log(`[IMAGES] Request origin: ${req.headers.origin || 'Unknown'}`);
     
     // Configurar cabeceras CORS desde el principio (incluso antes de obtener la imagen)
-    // De esta manera, si hay un error, las cabeceras ya estarán configuradas
-    const origin = req.headers.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', '*'); // Siempre usar '*' para imágenes
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Timing-Allow-Origin', '*');
     
-    const response = await fetch(url, {
+    // Determinar si la URL es de Vercel Blob (ajustar las opciones de fetch según sea necesario)
+    const isVercelBlob = url.includes('vercel-blob.com');
+    
+    // Configuración de fetch según el tipo de URL
+    const fetchOptions = {
       headers: {
         'Accept': 'image/*',
         'User-Agent': 'vercel-serverless-function',
       },
-      timeout: 5000 // 5 segundos timeout
-    });
+      timeout: 8000 // 8 segundos de timeout
+    };
+    
+    // Para URLs de Vercel Blob, usar credenciales
+    if (isVercelBlob) {
+      fetchOptions.credentials = 'omit'; // No incluir cookies para Vercel Blob
+    }
+    
+    const response = await fetch(url, fetchOptions);
     
     if (!response.ok) {
       console.error(`[IMAGES] Failed to fetch image: ${response.status} ${response.statusText}`);
+      console.error(`[IMAGES] URL: ${url}`);
       return false;
     }
     
@@ -47,6 +56,31 @@ async function serveImageAsBinary(url, res, req) {
     return true;
   } catch (error) {
     console.error(`[IMAGES] Error serving binary image: ${error.message}`);
+    console.error(`[IMAGES] URL: ${url}`);
+    
+    // Si el error podría estar relacionado con CORS, enviar respuesta HTML como fallback
+    if (error.message.includes('CORS') || error.message.includes('fetch') || error.message.includes('network')) {
+      console.log('[IMAGES] Attempting HTML fallback due to possible CORS/network error');
+      try {
+        res.setHeader('Content-Type', 'text/html');
+        res.status(200).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Image</title>
+            <style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden}img{max-width:100%;max-height:100%;}</style>
+          </head>
+          <body>
+            <img src="${url}" crossorigin="anonymous" style="max-width:100%" />
+          </body>
+          </html>
+        `);
+        return true;
+      } catch (fallbackError) {
+        console.error(`[IMAGES] Fallback also failed: ${fallbackError.message}`);
+      }
+    }
+    
     return false;
   }
 }
@@ -58,16 +92,27 @@ function generateUniqueId() {
 
 // Manejador para el endpoint de imágenes
 module.exports = async (req, res) => {
-  // Configuración CORS con wildcards y headers específicos para todos los orígenes
-  // Incluir 'Vary: Origin' para indicar que la respuesta puede variar según el origen
+  // Extraer el host de la solicitud para determinar si es un dominio relacionado
+  const requestHost = req.headers.host || '';
+  const refererHost = req.headers.referer ? new URL(req.headers.referer).host : '';
+  
+  // Determinar si la solicitud proviene de un dominio de Vercel relacionado
   const origin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  const isVercelRelatedOrigin = 
+    origin.includes('vercel.app') ||
+    origin.includes('quickbooks-backend');
+  
+  console.log(`[IMAGES] Request host: ${requestHost}, Referer host: ${refererHost}, Origin: ${origin}`);
+  
+  // Configuración CORS - Permitir todas las solicitudes de dominios relacionados
+  // Importante: para imágenes, permitimos cualquier origen
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
-  res.setHeader('Vary', 'Origin');
-  
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
   // Responder inmediatamente a las solicitudes OPTIONS
   if (req.method === 'OPTIONS') {
     console.log(`[IMAGES] Handling OPTIONS request from origin: ${origin}`);
@@ -160,14 +205,7 @@ module.exports = async (req, res) => {
           if (redirect === '1' || redirect === 'true') {
             console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}, origin: ${req.headers.origin || 'Unknown'}`);
             
-            // Siempre añadir encabezados CORS aquí también para evitar problemas
-            // No importa si es redundante, mejor asegurar que los encabezados estén presentes
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.setHeader('Access-Control-Allow-Credentials', 'true');
-            res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
-            
-            // Intentar servir directamente como binario
+            // Intentar servir directamente como binario (preferido)
             try {
               const success = await serveImageAsBinary(imageUrl, res, req);
               if (success) {
@@ -179,28 +217,36 @@ module.exports = async (req, res) => {
             
             // Si fallamos en binario, intentar con HTML iframe como respaldo
             if (redirect === 'data' || fallback === '1') {
-              console.log(`[IMAGES] Attempting iframe HTML fallback for ${imageUrl}`);
+              console.log(`[IMAGES] Using HTML wrapper for direct access to: ${imageUrl}`);
               return res.send(`
                 <!DOCTYPE html>
                 <html>
                 <head>
                   <title>Image Proxy</title>
                   <meta http-equiv="Access-Control-Allow-Origin" content="*" />
+                  <meta http-equiv="Cross-Origin-Resource-Policy" content="cross-origin" />
+                  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp" />
                   <style>
                     body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
                     img { max-width: 100%; max-height: 100%; display: block; margin: 0 auto; }
                   </style>
                 </head>
                 <body>
-                  <img src="${imageUrl}" crossorigin="anonymous" />
+                  <img 
+                    src="${imageUrl}" 
+                    crossorigin="anonymous" 
+                    onerror="document.body.innerHTML='<div style=\\'color:red; padding:20px;\\'>Error loading image. URL: ${imageUrl.replace(/'/g, "\\'")}.</div>'" 
+                  />
                 </body>
                 </html>
               `);
             }
             
-            // Como último recurso, hacer redirección 302
-            console.log(`[IMAGES] Using 302 redirect as last resort`);
+            // Como último recurso, intentar con redirección 302
+            // Incluir todos los encabezados necesarios para redirección
             res.setHeader('Location', imageUrl);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Expose-Headers', 'Location');
             return res.status(302).end();
           }
           
