@@ -142,6 +142,12 @@
             // Si ya tenemos un elemento proporcionado, usarlo. Si no, crear uno nuevo
             const img = element || new Image();
             
+            // Agregar los atributos necesarios para CORS
+            img.crossOrigin = "anonymous";
+            
+            // Agregar timestamp para evitar caché
+            const timestamp = Date.now();
+            
             // Si la URL es directa de Vercel Blob, intentar usarla a través de nuestro proxy
             if (url && url.includes('vercel-blob.com')) {
                 // Extraer solo el ID del blob a partir de la URL completa
@@ -166,17 +172,36 @@
                 if (blobId) {
                     console.log(`Usando proxy para cargar imagen con ID: ${blobId}`);
                     // Usar nuestro endpoint de imágenes que maneja CORS correctamente
-                    img.src = `${API_URL}/images?id=${blobId}&redirect=data&t=${new Date().getTime()}`;
+                    img.src = `${API_URL}/images?id=${blobId}&redirect=data&t=${timestamp}`;
                 } else {
                     console.log(`No se pudo extraer ID del blob, usando URL directa`);
-                    img.src = url;
+                    // Intentar con el endpoint de imágenes de todos modos, pasando la URL completa
+                    const encodedUrl = encodeURIComponent(url);
+                    img.src = `${API_URL}/images?url=${encodedUrl}&redirect=data&t=${timestamp}`;
                 }
-            } else {
-                // Si no es una URL de Vercel Blob, usar directamente
-                img.src = url;
+            } 
+            // Si la URL es de nuestro backend, asegurarnos de pasar por nuestro endpoint de imágenes
+            else if (url && url.includes('/api/images')) {
+                // Ya es una URL de nuestro endpoint, solo agregar timestamp
+                img.src = `${url}&t=${timestamp}`;
+            }
+            // URL externa
+            else {
+                // Para URLs externas, intentar usar nuestro proxy también
+                const encodedUrl = encodeURIComponent(url);
+                img.src = `${API_URL}/images?url=${encodedUrl}&redirect=data&t=${timestamp}`;
             }
             
-            img.crossOrigin = "anonymous";
+            // Agregar manejo de errores
+            img.onerror = function() {
+                console.error(`Error al cargar imagen: ${img.src}`);
+                // Intentar métodos alternativos si falla
+                if (!img.src.includes('&fallback=1')) {
+                    console.log('Intentando método alternativo de carga...');
+                    img.src = `${img.src}&fallback=1`;
+                }
+            };
+            
             return img;
         }
         
@@ -459,21 +484,31 @@
                             <p>ID imagen: ${imageId || 'No disponible'}</p>
                         `;
                         
-                        // Si tenemos un ID de imagen, intentar cargarla con él
-                        if (imageId) {
-                            imgErrorMessages.innerHTML = '<p>Cargando imagen usando el ID...</p>';
-                            
+                        // Si tenemos datos de imagen, intentar cargarla
+                        if (imageId || question.image) {
+                            imgErrorMessages.innerHTML = '<p>Cargando imagen...</p>';
                             const imgElement = document.getElementById('testImage');
-                            imgElement.crossOrigin = "anonymous";
-                            // Usar el ID directamente con nuestro endpoint de imágenes
-                            imgElement.src = `${API_URL}/images?id=${imageId}&redirect=data&t=${new Date().getTime()}`;
                             
-                            // Mostrar URL completa si la hay
+                            // Probar diferentes métodos para cargar la imagen
                             if (question.image) {
+                                // Intentar usar directamente la URL con nuestro proxy mejorado
+                                imgErrorMessages.innerHTML += `<p>Usando URL de imagen con método binario</p>`;
+                                createProxyImage(question.image, imgElement);
+                                
+                                // Mostrar la URL para referencia
                                 resultDiv.innerHTML += `<p>URL de imagen: ${question.image}</p>`;
+                            } 
+                            else if (imageId) {
+                                // Si no hay URL pero tenemos ID, usar el endpoint directo
+                                imgErrorMessages.innerHTML += `<p>Usando ID de imagen: ${imageId}</p>`;
+                                // Crear una URL con el endpoint de imágenes
+                                const imageUrl = `${API_URL}/images?id=${imageId}&redirect=data&t=${Date.now()}`;
+                                createProxyImage(imageUrl, imgElement);
                             }
-                        }
-                        else {
+                            else {
+                                imgErrorMessages.innerHTML = `<p class="error">No hay información de imagen disponible</p>`;
+                            }
+                        } else {
                             imgErrorMessages.innerHTML = `<p class="error">No hay información de imagen disponible</p>`;
                         }
                     } else {
