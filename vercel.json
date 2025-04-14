@@ -24,7 +24,16 @@
       "methods": ["GET", "DELETE", "OPTIONS"]
     },
     { "src": "/api/tests", "dest": "/api/tests.js", "methods": ["GET", "POST", "DELETE", "OPTIONS"] },
-    { "src": "/api/images", "dest": "/api/images.js", "methods": ["GET", "OPTIONS"] },
+    { 
+      "src": "/api/images", 
+      "dest": "/api/images.js", 
+      "methods": ["GET", "OPTIONS"],
+      "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Origin"
+      }
+    },
     { "src": "/api/airtable-check", "dest": "/api/airtable-check.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/", "dest": "/api/index.js" },
     { "src": "/(.*)", "status": 404, "dest": "/api/index.js" }

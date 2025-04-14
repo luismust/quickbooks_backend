@@ -456,7 +456,24 @@ module.exports = async (req, res) => {
     const responseData = {
       ...testToSave,
       id: testId,
-      questions: simplifiedQuestions // Usar las preguntas simplificadas en la respuesta
+      questions: simplifiedQuestions.map(q => {
+        // Asegurarse de que cada pregunta en la respuesta tenga su imageId
+        if (q.imageId) {
+          // Generar URL para las imágenes en la respuesta
+          let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
+          if (!apiUrl.startsWith('http')) {
+            apiUrl = `https://${apiUrl}`;
+          }
+          
+          // Generar URL de imagen para el frontend
+          const imageUrl = `${apiUrl}/api/images?id=${q.imageId}&redirect=1`;
+          return {
+            ...q,
+            image: imageUrl // Incluir la URL completa de la imagen
+          };
+        }
+        return q;
+      })
     };
     
     // Intentar procesar imágenes en segundo plano, pero no bloquear la respuesta

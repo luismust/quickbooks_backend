@@ -100,36 +100,27 @@ module.exports = async (req, res) => {
         questions = questions.map(question => {
           const processedQuestion = { ...question };
           
-          // Si hay una imagen, convertirla en una URL accesible mediante nuestro endpoint
-          if (question.image) {
-            // Si ya es una URL completa de http, dejarla como está
-            if (question.image.startsWith('http')) {
-              processedQuestion.image = question.image;
-            } 
-            // Si tenemos un ID de imagen, crear una URL a nuestro endpoint
-            else if (question.imageId) {
-              // Usar una URL completa (incluir https://)
-              let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
-              apiUrl = ensureHttpsProtocol(apiUrl);
-              
-              // Usar redirección directa para que el frontend reciba la imagen directamente
-              const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
-              processedQuestion.image = imageUrl;
-              console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for imageId: ${question.imageId}`);
-            }
-            // Si es null u otro valor, mantenerlo
-            else {
-              // No hacer nada
-            }
-          } else if (question.imageId) {
-            // Si no hay imagen pero sí hay imageId, también crear la URL
+          // Si hay una imagen o un imageId, convertirla en una URL accesible mediante nuestro endpoint
+          if (question.imageId) {
+            // Usar una URL completa (incluir https://)
             let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
             apiUrl = ensureHttpsProtocol(apiUrl);
             
             // Usar redirección directa para que el frontend reciba la imagen directamente
             const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
             processedQuestion.image = imageUrl;
+            // Mantener el imageId original para referencia
+            processedQuestion.imageId = question.imageId;
             console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for imageId: ${question.imageId}`);
+          }
+          // Si hay una imagen que ya es una URL HTTP, mantenerla
+          else if (question.image && question.image.startsWith('http')) {
+            processedQuestion.image = question.image;
+            console.log(`[LOAD-TESTS] Using existing HTTP image URL: ${question.image}`);
+          }
+          // Si no hay imagen ni imageId, asegurarse de que image sea null
+          else if (!question.image) {
+            processedQuestion.image = null;
           }
           
           return processedQuestion;

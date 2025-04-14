@@ -96,9 +96,23 @@ module.exports = async (req, res) => {
     const mimeType = matches[1];
     const base64Content = matches[2];
     
-    // Generar ID para la imagen
-    const blobId = extractIdFromBlobUrl(blobUrl);
-    const imageId = questionId || blobId || generateUniqueId();
+    // Generar ID para la imagen - usar questionId si está disponible, ya que es el ID de la pregunta
+    // Este debe ser consistente con el usado en save-test.js
+    let imageId = questionId;
+    
+    // Si no hay questionId, intentar extraer del blobUrl
+    if (!imageId) {
+      const blobId = extractIdFromBlobUrl(blobUrl);
+      imageId = blobId;
+    }
+    
+    // Si no hay ni questionId ni blobId válido, generar uno nuevo
+    if (!imageId) {
+      imageId = generateUniqueId();
+    }
+    
+    console.log(`[PROCESS-BLOB] Using imageId: ${imageId}`);
+    
     const extension = mimeType.split('/')[1] || 'jpg';
     const fileName = `image_${imageId}.${extension}`;
     

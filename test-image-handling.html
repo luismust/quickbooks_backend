@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test de Manejo de Imágenes</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-image {
+            max-width: 300px;
+            border: 1px solid #ccc;
+            margin: 10px 0;
+        }
+        .image-container {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin: 5px;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test de Manejo de Imágenes</h1>
+    
+    <div id="imageUploadTest">
+        <h2>1. Prueba de Subida de Imagen</h2>
+        <input type="file" id="imageInput" accept="image/*">
+        <button id="uploadImageBtn">Subir Imagen</button>
+        <div id="uploadResult"></div>
+        <div>
+            <img id="uploadedImage" class="test-image">
+        </div>
+    </div>
+
+    <div id="imageIdTest">
+        <h2>2. Prueba de Carga de Imagen por ID</h2>
+        <input type="text" id="imageIdInput" placeholder="ID de imagen">
+        <button id="loadImageBtn">Cargar Imagen</button>
+        <div id="loadResult"></div>
+        <div>
+            <img id="loadedImage" class="test-image">
+        </div>
+    </div>
+
+    <div id="testCreation">
+        <h2>3. Prueba de Creación de Test con Imagen</h2>
+        <button id="createTestBtn">Crear Test con Imagen</button>
+        <div id="createResult"></div>
+        <textarea id="testData" readonly></textarea>
+    </div>
+
+    <div id="testLoading">
+        <h2>4. Prueba de Carga de Test</h2>
+        <input type="text" id="testIdInput" placeholder="ID del test">
+        <button id="loadTestBtn">Cargar Test</button>
+        <div id="loadTestResult"></div>
+        <textarea id="loadedTestData" readonly></textarea>
+        <div id="imagePreview">
+            <h3>Vista previa de imagen del test</h3>
+            <img id="testImage" class="test-image">
+        </div>
+    </div>
+
+    <script>
+        // Configuración
+        const API_URL = 'https://quickbooks-backend.vercel.app/api';
+        let uploadedImageData = null;
+        let uploadedImageId = null;
+        let createdTestId = null;
+
+        // 1. Prueba de subida de imagen
+        document.getElementById('uploadImageBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('imageInput');
+            const resultDiv = document.getElementById('uploadResult');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                resultDiv.innerHTML = '<p class="error">Por favor selecciona una imagen</p>';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            
+            // Leer como base64
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    uploadedImageData = e.target.result; // data:image/jpeg;base64,...
+                    
+                    // Subir a través del endpoint de imágenes
+                    const response = await fetch(`${API_URL}/images?action=upload`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            imageData: uploadedImageData,
+                            fileName: file.name
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        uploadedImageId = data.imageId;
+                        resultDiv.innerHTML = `
+                            <p class="success">Imagen subida correctamente</p>
+                            <p>ID: ${data.imageId}</p>
+                            <p>URL: ${data.url}</p>
+                        `;
+                        document.getElementById('uploadedImage').src = data.url;
+                        document.getElementById('imageIdInput').value = data.imageId;
+                    } else {
+                        resultDiv.innerHTML = `
+                            <p class="error">Error al subir: ${data.error}</p>
+                            <p>${data.details || ''}</p>
+                        `;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+                }
+            };
+            
+            reader.readAsDataURL(file);
+        });
+
+        // 2. Prueba de carga de imagen por ID
+        document.getElementById('loadImageBtn').addEventListener('click', async () => {
+            const imageId = document.getElementById('imageIdInput').value.trim();
+            const resultDiv = document.getElementById('loadResult');
+            const imageElement = document.getElementById('loadedImage');
+            
+            if (!imageId) {
+                resultDiv.innerHTML = '<p class="error">Por favor ingresa un ID de imagen</p>';
+                return;
+            }
+            
+            try {
+                // Intentar obtener la imagen - usar redirect=1 para probar la redirección directa
+                const imageUrl = `${API_URL}/images?id=${imageId}&redirect=1`;
+                imageElement.src = imageUrl;
+                
+                // También hacer una solicitud normal para ver la respuesta JSON
+                const response = await fetch(`${API_URL}/images?id=${imageId}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `
+                        <p class="success">Imagen cargada correctamente</p>
+                        <p>URL: ${data.url}</p>
+                        <p>Tipo: ${data.type}</p>
+                        <p>Tamaño: ${data.size} bytes</p>
+                    `;
+                } else {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `<p class="error">Error al cargar: ${data.error}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        });
+
+        // 3. Prueba de creación de test con imagen
+        document.getElementById('createTestBtn').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('createResult');
+            
+            if (!uploadedImageId && !uploadedImageData) {
+                resultDiv.innerHTML = '<p class="error">Por favor primero sube una imagen</p>';
+                return;
+            }
+            
+            try {
+                // Crear un test simple con la imagen subida
+                const testData = {
+                    name: "Test de Imagen " + new Date().toISOString(),
+                    description: "Test creado para probar el manejo de imágenes",
+                    questions: [
+                        {
+                            id: "q1",
+                            title: "Pregunta con Imagen",
+                            description: "Esta pregunta tiene una imagen asociada",
+                            type: "clickArea",
+                            // Usar el ID de imagen o los datos directamente
+                            imageId: uploadedImageId,
+                            image: uploadedImageData
+                        }
+                    ]
+                };
+                
+                document.getElementById('testData').value = JSON.stringify(testData, null, 2);
+                
+                // Guardar el test
+                const response = await fetch(`${API_URL}/save-test`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testData)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    createdTestId = data.id;
+                    resultDiv.innerHTML = `
+                        <p class="success">Test creado correctamente</p>
+                        <p>ID: ${data.id}</p>
+                        <p>Primera pregunta tiene imageId: ${data.questions[0].imageId || 'No disponible'}</p>
+                        <p>Primera pregunta tiene image: ${data.questions[0].image ? 'Sí' : 'No'}</p>
+                    `;
+                    
+                    // Actualizar el campo de ID para la siguiente prueba
+                    document.getElementById('testIdInput').value = data.id;
+                } else {
+                    resultDiv.innerHTML = `
+                        <p class="error">Error al crear test: ${data.error}</p>
+                        <p>${data.details || ''}</p>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        });
+
+        // 4. Prueba de carga de test
+        document.getElementById('loadTestBtn').addEventListener('click', async () => {
+            const testId = document.getElementById('testIdInput').value.trim();
+            const resultDiv = document.getElementById('loadTestResult');
+            
+            if (!testId) {
+                resultDiv.innerHTML = '<p class="error">Por favor ingresa un ID de test</p>';
+                return;
+            }
+            
+            try {
+                // Cargar el test
+                const response = await fetch(`${API_URL}/load-tests?id=${testId}`);
+                
+                if (response.ok) {
+                    const testData = await response.json();
+                    document.getElementById('loadedTestData').value = JSON.stringify(testData, null, 2);
+                    
+                    if (testData.questions && testData.questions.length > 0 && testData.questions[0].image) {
+                        document.getElementById('testImage').src = testData.questions[0].image;
+                        
+                        resultDiv.innerHTML = `
+                            <p class="success">Test cargado correctamente</p>
+                            <p>Test ID: ${testData.id}</p>
+                            <p>Nombre: ${testData.name}</p>
+                            <p>Primera pregunta tiene imageId: ${testData.questions[0].imageId || 'No disponible'}</p>
+                            <p>Primera pregunta tiene image URL: ${testData.questions[0].image}</p>
+                        `;
+                    } else {
+                        resultDiv.innerHTML = `
+                            <p class="error">El test no tiene preguntas con imágenes</p>
+                        `;
+                    }
+                } else {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `<p class="error">Error al cargar test: ${data.error}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html> 

@@ -10,7 +10,7 @@ function generateUniqueId() {
 // Manejador para el endpoint de imágenes
 module.exports = async (req, res) => {
   // Establecer cabeceras CORS
-  const origin = req.headers.origin || 'https://quickbooks-test-black.vercel.app';
+  const origin = req.headers.origin || '*';
   
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', origin);
@@ -30,16 +30,21 @@ module.exports = async (req, res) => {
     if (req.method === 'GET' && id && !action) {
       console.log(`[IMAGES] Looking for image with ID: ${id}, redirect=${redirect}`);
       
+      // Si el ID no tiene el prefijo 'image_', añadirlo para la búsqueda
+      const searchPrefix = id.startsWith('image_') ? id : `image_${id}`;
+      
+      console.log(`[IMAGES] Using search prefix: ${searchPrefix}`);
+      
       // Listar archivos en Vercel Blob que coincidan con el patrón
       const blobs = await list({
-        prefix: `image_${id}`,
+        prefix: searchPrefix,
         limit: 1
       });
       
       console.log(`[IMAGES] Found ${blobs.blobs.length} matching blobs for ID: ${id}`);
       
       if (!blobs.blobs || blobs.blobs.length === 0) {
-        console.warn(`[IMAGES] No image found with ID: ${id}`);
+        console.warn(`[IMAGES] No image found with ID: ${id}, search prefix: ${searchPrefix}`);
         return res.status(404).json({ error: 'Image not found' });
       }
       
@@ -47,9 +52,16 @@ module.exports = async (req, res) => {
       const blob = blobs.blobs[0];
       const imageUrl = blob.url;
       
+      console.log(`[IMAGES] Found image: ${blob.pathname}, URL: ${imageUrl}`);
+      
       // Si se solicita redirección, redireccionar directamente
       if (redirect === '1' || redirect === 'true') {
         console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}`);
+        
+        // Agregar encabezados para caché y CORS antes de redireccionar
+        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 24 horas
+        res.setHeader('Vary', 'Origin');
+        
         return res.redirect(imageUrl);
       }
       
