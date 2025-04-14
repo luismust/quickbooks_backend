@@ -137,6 +137,49 @@
         let uploadedImageId = null;
         let createdTestId = null;
         
+        // Función para crear un elemento de imagen con manejo mejorado de CORS
+        function createProxyImage(url, element) {
+            // Si ya tenemos un elemento proporcionado, usarlo. Si no, crear uno nuevo
+            const img = element || new Image();
+            
+            // Si la URL es directa de Vercel Blob, intentar usarla a través de nuestro proxy
+            if (url && url.includes('vercel-blob.com')) {
+                // Extraer solo el ID del blob a partir de la URL completa
+                let blobId = null;
+                
+                // Patrón típico de URL de Vercel Blob: image_{id}.extension
+                const matchImage = url.match(/image_([^.]+)\./);
+                if (matchImage && matchImage[1]) {
+                    blobId = matchImage[1];
+                } else {
+                    // Intentar extraer directamente de la parte final de la URL
+                    const parts = url.split('/');
+                    const lastPart = parts[parts.length - 1];
+                    if (lastPart && lastPart.includes('.')) {
+                        blobId = lastPart.split('.')[0];
+                        if (blobId.startsWith('image_')) {
+                            blobId = blobId.substring(6);
+                        }
+                    }
+                }
+                
+                if (blobId) {
+                    console.log(`Usando proxy para cargar imagen con ID: ${blobId}`);
+                    // Usar nuestro endpoint de imágenes que maneja CORS correctamente
+                    img.src = `${API_URL}/images?id=${blobId}&redirect=data&t=${new Date().getTime()}`;
+                } else {
+                    console.log(`No se pudo extraer ID del blob, usando URL directa`);
+                    img.src = url;
+                }
+            } else {
+                // Si no es una URL de Vercel Blob, usar directamente
+                img.src = url;
+            }
+            
+            img.crossOrigin = "anonymous";
+            return img;
+        }
+        
         // Función para mostrar estado general
         function updateStatus(message, type = 'info') {
             const statusDiv = document.getElementById('status');
@@ -238,8 +281,8 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Usar directamente la URL del blob en lugar de la redirección
-                    imageElement.src = data.url;
+                    // Usar nuestro proxy para cargar la imagen evitando CORS
+                    createProxyImage(data.url, imageElement);
                     
                     resultDiv.innerHTML = `
                         <p class="success">Imagen cargada correctamente</p>
@@ -251,10 +294,9 @@
                     const data = await response.json();
                     resultDiv.innerHTML = `<p class="error">Error al cargar: ${data.error}</p>`;
                     
-                    // Intentar cargarla con redirección como fallback
-                    const imageUrl = `${API_URL}/images?id=${imageId}&redirect=1`;
+                    // Intentar directamente con el endpoint de datos binarios
                     resultDiv.innerHTML += `<p>Intentando método alternativo...</p>`;
-                    imageElement.src = imageUrl;
+                    imageElement.src = `${API_URL}/images?id=${imageId}&redirect=data&t=${new Date().getTime()}`;
                 }
             } catch (error) {
                 resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
@@ -319,7 +361,7 @@
                     
                     // Si la respuesta incluye una URL de imagen, mostrarla
                     if (data.questions[0].image) {
-                        document.getElementById('testImage').src = data.questions[0].image;
+                        createProxyImage(data.questions[0].image, document.getElementById('testImage'));
                         resultDiv.innerHTML += `<p>URL de la imagen: ${data.questions[0].image}</p>`;
                     }
                     
@@ -340,6 +382,7 @@
         document.getElementById('loadTestBtn').addEventListener('click', async () => {
             const testId = document.getElementById('testIdInput').value.trim();
             const resultDiv = document.getElementById('loadTestResult');
+            const imgErrorMessages = document.getElementById('imgErrorMessages');
             
             if (!testId) {
                 resultDiv.innerHTML = '<p class="error">Por favor ingresa un ID de test</p>';
@@ -364,45 +407,31 @@
                             <p>Primera pregunta tiene image URL: ${question.image || 'No disponible'}</p>
                         `;
                         
-                        // Si tenemos una URL de imagen, intentar cargarla directamente de Vercel Blob
-                        if (question.imageId) {
-                            // Intentar primero con el endpoint directo sin redirección
-                            try {
-                                const imgResponse = await fetch(`${API_URL}/images?id=${question.imageId}`);
-                                if (imgResponse.ok) {
-                                    const imgData = await imgResponse.json();
-                                    // Usar directamente la URL del blob en lugar de la redirección
-                                    if (imgData.url) {
-                                        document.getElementById('testImage').src = imgData.url;
-                                        resultDiv.innerHTML += `<p class="success">Imagen cargada directamente desde Vercel Blob</p>`;
-                                    } else if (question.image) {
-                                        document.getElementById('testImage').src = question.image;
-                                        resultDiv.innerHTML += `<p class="success">Usando URL de imagen del test</p>`;
-                                    }
-                                } else {
-                                    // Si falla, usar la URL proporcionada en el test
-                                    if (question.image) {
-                                        document.getElementById('testImage').src = question.image;
-                                        resultDiv.innerHTML += `<p class="success">Usando URL de imagen del test (API directa falló)</p>`;
-                                    } else {
-                                        resultDiv.innerHTML += `<p class="error">No se pudo cargar la imagen</p>`;
-                                    }
-                                }
-                            } catch (imgError) {
-                                // Si falla por cualquier razón, intentar con la URL del test
-                                if (question.image) {
-                                    document.getElementById('testImage').src = question.image;
-                                    resultDiv.innerHTML += `<p class="success">Usando URL de imagen del test (excepción en API)</p>`;
-                                } else {
-                                    resultDiv.innerHTML += `<p class="error">Error al cargar la imagen: ${imgError.message}</p>`;
-                                }
+                        // Mostrar información detallada sobre la imagen para depuración
+                        resultDiv.innerHTML += `<div style="margin-top:10px;padding:10px;background:#f8f8f8;border-radius:5px;">
+                            <h4>Información de depuración:</h4>
+                            <p>ID pregunta: ${question.id || 'No disponible'}</p>
+                            <p>ID imagen: ${question.imageId || 'No disponible'}</p>
+                        </div>`;
+                        
+                        // Si tenemos una URL o un ID de imagen, intentar cargarla con nuestro proxy
+                        if (question.imageId || question.image) {
+                            imgErrorMessages.innerHTML = '<p>Intentando cargar imagen con proxy CORS...</p>';
+                            
+                            const imgElement = document.getElementById('testImage');
+                            
+                            if (question.image) {
+                                // Si tenemos URL directa, usar nuestro proxy
+                                createProxyImage(question.image, imgElement);
+                                imgErrorMessages.innerHTML += `<p>Usando URL directa con proxy: ${question.image}</p>`;
+                            } else if (question.imageId) {
+                                // Si sólo tenemos imageId, usar el endpoint de datos binarios
+                                imgElement.crossOrigin = "anonymous";
+                                imgElement.src = `${API_URL}/images?id=${question.imageId}&redirect=data&t=${new Date().getTime()}`;
+                                imgErrorMessages.innerHTML += `<p>Usando ID con endpoint binario: ${question.imageId}</p>`;
                             }
-                        } else if (question.image) {
-                            // Si solo tenemos URL pero no ID
-                            document.getElementById('testImage').src = question.image;
-                            resultDiv.innerHTML += `<p class="success">Usando URL de imagen sin imageId</p>`;
                         } else {
-                            resultDiv.innerHTML += `<p class="error">El test no tiene imágenes</p>`;
+                            imgErrorMessages.innerHTML = `<p class="error">No hay información de imagen disponible</p>`;
                         }
                     } else {
                         resultDiv.innerHTML = `
@@ -431,20 +460,48 @@
             
             resultDiv.innerHTML = '<p>Probando carga directa de URL...</p>';
             
-            // Crear una nueva imagen para probar la carga
-            const img = new Image();
-            img.className = 'test-image';
-            img.crossOrigin = 'anonymous';  // Intentar con CORS
-            
-            img.onload = function() {
-                resultDiv.innerHTML = '<p class="success">URL cargada correctamente</p>';
-                resultDiv.appendChild(img);
-            };
-            
-            img.onerror = function() {
-                resultDiv.innerHTML = '<p class="error">Error al cargar la URL directamente</p>';
+            // Intentar cargar con nuestro proxy
+            try {
+                const proxyImg = createProxyImage(url);
+                proxyImg.className = 'test-image';
                 
-                // Intentar con un iframe como alternativa
+                proxyImg.onload = function() {
+                    resultDiv.innerHTML = '<p class="success">URL cargada correctamente con proxy</p>';
+                    resultDiv.appendChild(proxyImg);
+                };
+                
+                proxyImg.onerror = function() {
+                    resultDiv.innerHTML = '<p class="error">Error al cargar la URL con proxy</p>';
+                    intentarDirecto();
+                };
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error con proxy: ${error.message}</p>`;
+                intentarDirecto();
+            }
+            
+            function intentarDirecto() {
+                // Crear una nueva imagen para probar la carga directa
+                resultDiv.innerHTML += '<p>Intentando carga directa...</p>';
+                
+                const img = new Image();
+                img.className = 'test-image';
+                img.crossOrigin = 'anonymous';
+                
+                img.onload = function() {
+                    resultDiv.innerHTML += '<p class="success">URL cargada correctamente de forma directa</p>';
+                    resultDiv.appendChild(img);
+                };
+                
+                img.onerror = function() {
+                    resultDiv.innerHTML += '<p class="error">Error al cargar la URL directamente</p>';
+                    intentarIframe();
+                };
+                
+                img.src = url;
+            }
+            
+            function intentarIframe() {
+                // Intentar con un iframe como última alternativa
                 resultDiv.innerHTML += '<p>Intentando con iframe...</p>';
                 
                 const iframe = document.createElement('iframe');
@@ -462,10 +519,8 @@
                 
                 iframe.src = url;
                 resultDiv.appendChild(iframe);
-            };
-            
-            img.src = url;
+            }
         });
     </script>
 </body>
-</html> 
+</html>

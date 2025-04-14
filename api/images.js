@@ -1,6 +1,38 @@
 // api/images.js - Endpoint para gestionar imágenes de Vercel Blob Storage
 const { list, get, put, del } = require('@vercel/blob');
 const crypto = require('crypto');
+const fetch = require('node-fetch'); // Asegúrate de que esté instalado
+
+// Función para obtener y servir imágenes como datos binarios
+async function serveImageAsBinary(url, res) {
+  try {
+    console.log(`[IMAGES] Retrieving binary data from: ${url}`);
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.error(`[IMAGES] Failed to fetch image: ${response.status} ${response.statusText}`);
+      return false;
+    }
+    
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = await response.buffer();
+    
+    console.log(`[IMAGES] Successfully retrieved image: ${contentType}, ${buffer.length} bytes`);
+    
+    // Configurar cabeceras para la imagen
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Enviar la imagen
+    res.status(200).send(buffer);
+    return true;
+  } catch (error) {
+    console.error(`[IMAGES] Error serving binary image: ${error.message}`);
+    return false;
+  }
+}
 
 // Generar ID único para las imágenes
 function generateUniqueId() {
@@ -12,7 +44,8 @@ module.exports = async (req, res) => {
   // Establecer cabeceras CORS - aceptar cualquier origen para las imágenes
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Type, Content-Length');
   
   // Responder inmediatamente a las solicitudes OPTIONS
   if (req.method === 'OPTIONS') {
@@ -27,26 +60,72 @@ module.exports = async (req, res) => {
     if (req.method === 'GET' && id && !action) {
       console.log(`[IMAGES] Looking for image with ID: ${id}, redirect=${redirect}`);
       
-      // Si el ID no tiene el prefijo 'image_', añadirlo para la búsqueda
-      const searchPrefix = id.startsWith('image_') ? id : `image_${id}`;
-      
-      console.log(`[IMAGES] Using search prefix: ${searchPrefix}`);
-      
-      // Listar archivos en Vercel Blob que coincidan con el patrón
-      const blobs = await list({
-        prefix: searchPrefix,
-        limit: 1
-      });
-      
-      console.log(`[IMAGES] Found ${blobs.blobs.length} matching blobs for ID: ${id}`);
-      
-      if (!blobs.blobs || blobs.blobs.length === 0) {
-        console.warn(`[IMAGES] No image found with ID: ${id}, search prefix: ${searchPrefix}`);
-        return res.status(404).json({ error: 'Image not found' });
+      // Limpiar el ID - si viene con formato q_123456 necesitamos quitarle el prefijo q_
+      let cleanId = id;
+      if (id.startsWith('q_')) {
+        cleanId = id;
       }
       
-      // Obtener el primer blob que coincide (debería ser único por ID)
-      const blob = blobs.blobs[0];
+      // Si el ID no tiene el prefijo 'image_', hacer búsquedas con y sin él
+      let searchResults = [];
+      
+      // Búsqueda 1: Buscar con prefijo image_ + ID
+      let searchPrefix1 = cleanId.startsWith('image_') ? cleanId : `image_${cleanId}`;
+      console.log(`[IMAGES] Search attempt 1: ${searchPrefix1}`);
+      
+      try {
+        const blobs1 = await list({
+          prefix: searchPrefix1,
+          limit: 5
+        });
+        
+        if (blobs1.blobs && blobs1.blobs.length > 0) {
+          searchResults = searchResults.concat(blobs1.blobs);
+          console.log(`[IMAGES] Found ${blobs1.blobs.length} blobs with prefix ${searchPrefix1}`);
+        }
+      } catch (err) {
+        console.error(`[IMAGES] Error in search 1:`, err);
+      }
+      
+      // Búsqueda 2: Buscar sin ningún prefijo (patrones adicionales)
+      if (searchResults.length === 0) {
+        try {
+          // Buscar patrones que puedan contener el ID en cualquier parte del nombre
+          const blobs2 = await list({
+            limit: 100
+          });
+          
+          if (blobs2.blobs && blobs2.blobs.length > 0) {
+            // Filtrar los resultados que contengan el ID en alguna parte
+            const filteredBlobs = blobs2.blobs.filter(blob => 
+              blob.pathname.includes(cleanId) || 
+              (cleanId.length > 8 && blob.pathname.includes(cleanId.substring(0, 8)))
+            );
+            
+            if (filteredBlobs.length > 0) {
+              searchResults = searchResults.concat(filteredBlobs);
+              console.log(`[IMAGES] Found ${filteredBlobs.length} blobs through pattern matching for ${cleanId}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[IMAGES] Error in search 2:`, err);
+        }
+      }
+      
+      console.log(`[IMAGES] Total search results: ${searchResults.length}`);
+      
+      if (searchResults.length === 0) {
+        console.warn(`[IMAGES] No image found for ID: ${id} after multiple search attempts`);
+        return res.status(404).json({ 
+          error: 'Image not found', 
+          id: id,
+          cleanId: cleanId,
+          searchPatterns: [searchPrefix1]
+        });
+      }
+      
+      // Obtener el primer blob que coincide
+      const blob = searchResults[0];
       const imageUrl = blob.url;
       
       console.log(`[IMAGES] Found image: ${blob.pathname}, URL: ${imageUrl}`);
@@ -57,6 +136,18 @@ module.exports = async (req, res) => {
         
         // Agregar encabezados para caché y CORS antes de redireccionar
         res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 24 horas
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        
+        // Intentar servir la imagen directamente en lugar de redirigir
+        if (redirect === 'data') {
+          console.log(`[IMAGES] Attempting to serve image as binary data`);
+          const success = await serveImageAsBinary(imageUrl, res);
+          if (success) {
+            return; // La respuesta ya fue enviada por serveImageAsBinary
+          }
+          console.log(`[IMAGES] Binary data serving failed, falling back to redirect`);
+          // Si falla, continuamos con la redirección normal
+        }
         
         // Usar un iframe o una etiqueta img directa podría funcionar mejor que una redirección
         if (redirect === 'iframe') {
@@ -66,16 +157,25 @@ module.exports = async (req, res) => {
             <head>
               <title>Image ${id}</title>
               <style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden}img{max-width:100%;max-height:100%;}</style>
+              <meta http-equiv="Access-Control-Allow-Origin" content="*">
             </head>
             <body>
-              <img src="${imageUrl}" alt="Image ${id}" />
+              <img src="${imageUrl}" alt="Image ${id}" crossorigin="anonymous" />
             </body>
             </html>
           `);
         } else if (redirect === 'html') {
-          return res.send(`<img src="${imageUrl}" alt="Image ${id}" style="max-width:100%" />`);
+          return res.send(`<img src="${imageUrl}" alt="Image ${id}" style="max-width:100%" crossorigin="anonymous" />`);
         } else {
-          // Redirección normal
+          // Intentar servir como binario primero antes de redirigir
+          console.log(`[IMAGES] Attempting to serve image as binary data before standard redirect`);
+          const success = await serveImageAsBinary(imageUrl, res);
+          if (success) {
+            return; // La respuesta ya fue enviada por serveImageAsBinary
+          }
+          
+          // Si falla el servicio binario, hacer redirección estándar
+          console.log(`[IMAGES] Falling back to standard redirect`);
           return res.redirect(imageUrl);
         }
       }
@@ -86,6 +186,7 @@ module.exports = async (req, res) => {
         size: blob.size,
         type: blob.contentType || 'image/jpeg',
         source: 'vercel-blob',
+        pathname: blob.pathname,
         uploadedAt: blob.uploadedAt
       });
     }
