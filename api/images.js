@@ -19,11 +19,14 @@ async function serveImageAsBinary(url, res) {
     
     console.log(`[IMAGES] Successfully retrieved image: ${contentType}, ${buffer.length} bytes`);
     
-    // Configurar cabeceras para la imagen
+    // Configurar cabeceras para la imagen con CORS permisivo
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     
     // Enviar la imagen
     res.status(200).send(buffer);
@@ -41,11 +44,13 @@ function generateUniqueId() {
 
 // Manejador para el endpoint de imágenes
 module.exports = async (req, res) => {
-  // Establecer cabeceras CORS - aceptar cualquier origen para las imágenes
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Establecer cabeceras CORS más permisivas - aceptar cualquier origen para las imágenes
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Type, Content-Length');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   // Responder inmediatamente a las solicitudes OPTIONS
   if (req.method === 'OPTIONS') {
@@ -97,25 +102,15 @@ module.exports = async (req, res) => {
           res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 24 horas
           res.setHeader('X-Content-Type-Options', 'nosniff');
           
-          // Intentar servir la imagen directamente en lugar de redirigir
-          if (redirect === 'data') {
-            console.log(`[IMAGES] Attempting to serve image as binary data`);
-            const success = await serveImageAsBinary(imageUrl, res);
-            if (success) {
-              return; // La respuesta ya fue enviada por serveImageAsBinary
-            }
-            console.log(`[IMAGES] Binary data serving failed, falling back to redirect`);
-          }
-          
-          // Intentar servir como binario primero antes de redirigir
-          console.log(`[IMAGES] Attempting to serve image as binary data before redirect`);
+          // Intentar servir como binario primero (evita problemas CORS)
+          console.log(`[IMAGES] Attempting to serve image as binary data`);
           const success = await serveImageAsBinary(imageUrl, res);
           if (success) {
             return; // La respuesta ya fue enviada por serveImageAsBinary
           }
           
           // Si falla el servicio binario, hacer redirección estándar
-          console.log(`[IMAGES] Falling back to standard redirect`);
+          console.log(`[IMAGES] Binary serving failed, falling back to redirect`);
           return res.redirect(imageUrl);
         }
         

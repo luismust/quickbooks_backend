@@ -1,5 +1,6 @@
 // api/save-test.js - Un endpoint especial para guardar tests
 const Airtable = require('airtable');
+const crypto = require('crypto');
 let blobModule;
 
 try {
@@ -27,9 +28,9 @@ const getAirtableBase = () => {
   }).base(process.env.AIRTABLE_BASE_ID);
 };
 
-// Función para generar un ID único
+// Función para generar un ID único para imágenes
 function generateUniqueId() {
-  return 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  return crypto.randomBytes(8).toString('hex');
 }
 
 // Función para limpiar objetos de pregunta antes de guardar en Airtable
@@ -272,7 +273,10 @@ module.exports = async (req, res) => {
           // Si tenemos _imageData explícito, usarlo con prioridad
           if (q._imageData && typeof q._imageData === 'string' && q._imageData.startsWith('data:')) {
             console.log(`[SAVE-TEST] Using explicit _imageData field for question ${q.id || 'unknown'}`);
-            const imageId = q.id || generateUniqueId();
+            
+            // Generar un ID único para la imagen, NO usar el ID de la pregunta
+            const imageId = generateUniqueId();
+            
             simplifiedQuestion.imageId = imageId;
             simplifiedQuestion.image = null;
             
@@ -285,7 +289,9 @@ module.exports = async (req, res) => {
           // Si es base64 directo en image
           else if (q.image.startsWith('data:')) {
             console.log(`[SAVE-TEST] Image is data URL, processing for question ${q.id || 'unknown'}`);
-            const imageId = q.id || generateUniqueId();
+            
+            // Generar un ID único para la imagen, NO usar el ID de la pregunta como ID de imagen
+            const imageId = generateUniqueId();
             
             simplifiedQuestion.imageId = imageId;
             simplifiedQuestion.image = null;
@@ -302,7 +308,9 @@ module.exports = async (req, res) => {
             
             if (q._localFile && typeof q._localFile === 'string' && q._localFile.startsWith('data:')) {
               console.log(`[SAVE-TEST] Found _localFile for blob URL, using it for question ${q.id || 'unknown'}`);
-              const imageId = q.id || generateUniqueId();
+              
+              // Generar un ID único para la imagen, NO usar el ID de la pregunta
+              const imageId = generateUniqueId();
               
               simplifiedQuestion.imageId = imageId;
               simplifiedQuestion.image = null;
