@@ -148,59 +148,124 @@
             // Agregar timestamp para evitar caché
             const timestamp = Date.now();
             
-            // Si la URL es directa de Vercel Blob, intentar usarla a través de nuestro proxy
-            if (url && url.includes('vercel-blob.com')) {
-                // Extraer solo el ID del blob a partir de la URL completa
-                let blobId = null;
-                
-                // Patrón típico de URL de Vercel Blob: image_{id}.extension
-                const matchImage = url.match(/image_([^.]+)\./);
-                if (matchImage && matchImage[1]) {
-                    blobId = matchImage[1];
-                } else {
-                    // Intentar extraer directamente de la parte final de la URL
-                    const parts = url.split('/');
-                    const lastPart = parts[parts.length - 1];
-                    if (lastPart && lastPart.includes('.')) {
-                        blobId = lastPart.split('.')[0];
-                        if (blobId.startsWith('image_')) {
-                            blobId = blobId.substring(6);
-                        }
-                    }
-                }
-                
-                if (blobId) {
-                    console.log(`Usando proxy para cargar imagen con ID: ${blobId}`);
-                    // Usar nuestro endpoint de imágenes que maneja CORS correctamente
-                    img.src = `${API_URL}/images?id=${blobId}&redirect=data&t=${timestamp}`;
-                } else {
-                    console.log(`No se pudo extraer ID del blob, usando URL directa`);
-                    // Intentar con el endpoint de imágenes de todos modos, pasando la URL completa
-                    const encodedUrl = encodeURIComponent(url);
-                    img.src = `${API_URL}/images?url=${encodedUrl}&redirect=data&t=${timestamp}`;
-                }
-            } 
-            // Si la URL es de nuestro backend, asegurarnos de pasar por nuestro endpoint de imágenes
-            else if (url && url.includes('/api/images')) {
-                // Ya es una URL de nuestro endpoint, solo agregar timestamp
-                img.src = `${url}&t=${timestamp}`;
-            }
-            // URL externa
-            else {
-                // Para URLs externas, intentar usar nuestro proxy también
-                const encodedUrl = encodeURIComponent(url);
-                img.src = `${API_URL}/images?url=${encodedUrl}&redirect=data&t=${timestamp}`;
+            // Detectar tipo de URL y crear la mejor estrategia de carga
+            let finalUrl;
+            
+            // Crear un contenedor para mensajes de error si no hay uno
+            const errorContainer = document.createElement('div');
+            errorContainer.style.color = 'red';
+            errorContainer.style.fontSize = '12px';
+            errorContainer.style.marginTop = '5px';
+            
+            if (img.parentNode) {
+                img.parentNode.appendChild(errorContainer);
             }
             
-            // Agregar manejo de errores
-            img.onerror = function() {
-                console.error(`Error al cargar imagen: ${img.src}`);
-                // Intentar métodos alternativos si falla
-                if (!img.src.includes('&fallback=1')) {
-                    console.log('Intentando método alternativo de carga...');
-                    img.src = `${img.src}&fallback=1`;
+            // Contador de intentos para la estrategia de reintento
+            let attemptCount = 0;
+            const maxAttempts = 3;
+            
+            // Función de carga con diferentes estrategias
+            function loadWithStrategy(strategy = 'direct') {
+                attemptCount++;
+                errorContainer.textContent = `Intento ${attemptCount} usando estrategia: ${strategy}`;
+                
+                // Reset de eventos
+                img.onload = img.onerror = null;
+                
+                // Evento de carga exitosa
+                img.onload = function() {
+                    errorContainer.textContent = `✓ Imagen cargada exitosamente (${strategy})`;
+                    errorContainer.style.color = 'green';
+                };
+                
+                // Manejo de errores con reintento de diferentes estrategias
+                img.onerror = function() {
+                    if (attemptCount >= maxAttempts) {
+                        errorContainer.textContent = `✗ Error al cargar imagen después de ${maxAttempts} intentos`;
+                        return;
+                    }
+                    
+                    // Elegir siguiente estrategia
+                    let nextStrategy;
+                    if (strategy === 'direct') nextStrategy = 'binary';
+                    else if (strategy === 'binary') nextStrategy = 'iframe';
+                    else if (strategy === 'iframe') nextStrategy = 'urlOnly';
+                    else return; // No más estrategias
+                    
+                    // Pequeño retraso antes del siguiente intento
+                    setTimeout(() => loadWithStrategy(nextStrategy), 500);
+                };
+                
+                // Aplicar la estrategia seleccionada
+                if (strategy === 'direct') {
+                    // Extraer ID si es URL de vercel-blob
+                    if (url && url.includes('vercel-blob.com')) {
+                        const matchImage = url.match(/image_([^.]+)\./);
+                        if (matchImage && matchImage[1]) {
+                            const blobId = matchImage[1];
+                            finalUrl = `${API_URL}/images?id=${blobId}&redirect=data&t=${timestamp}`;
+                        } else {
+                            finalUrl = url;
+                        }
+                    } 
+                    // Si es URL de nuestro endpoint de imágenes
+                    else if (url && url.includes('/api/images')) {
+                        finalUrl = `${url}&t=${timestamp}`;
+                    }
+                    // Cualquier otra URL
+                    else {
+                        finalUrl = url;
+                    }
+                    
+                    img.src = finalUrl;
                 }
-            };
+                else if (strategy === 'binary') {
+                    // Usar el modo de datos binarios
+                    if (url.includes('api/images')) {
+                        finalUrl = url.includes('redirect=') 
+                            ? url.replace(/redirect=[^&]+/, 'redirect=data') 
+                            : `${url}&redirect=data&t=${timestamp}`;
+                    } else {
+                        const encodedUrl = encodeURIComponent(url);
+                        finalUrl = `${API_URL}/images?url=${encodedUrl}&redirect=data&t=${timestamp}`;
+                    }
+                    
+                    img.src = finalUrl;
+                }
+                else if (strategy === 'iframe') {
+                    // Usar el enfoque de iframe
+                    if (url.includes('api/images')) {
+                        finalUrl = `${url}&fallback=1&t=${timestamp}`;
+                    } else {
+                        const encodedUrl = encodeURIComponent(url);
+                        finalUrl = `${API_URL}/images?url=${encodedUrl}&fallback=1&t=${timestamp}`;
+                    }
+                    
+                    // Crear un iframe en lugar de cargar directamente
+                    const iframe = document.createElement('iframe');
+                    iframe.style.width = '100%';
+                    iframe.style.height = '200px';
+                    iframe.style.border = 'none';
+                    iframe.src = finalUrl;
+                    
+                    // Reemplazar la imagen con el iframe
+                    if (img.parentNode) {
+                        img.parentNode.replaceChild(iframe, img);
+                        errorContainer.textContent = 'Usando iframe como alternativa';
+                        errorContainer.style.color = 'orange';
+                    }
+                    
+                    return iframe; // Detener el proceso aquí
+                }
+                else if (strategy === 'urlOnly') {
+                    // Último recurso: URL directa sin proxy
+                    img.src = url;
+                }
+            }
+            
+            // Iniciar con la estrategia directa
+            loadWithStrategy('direct');
             
             return img;
         }
@@ -432,11 +497,11 @@
                         </p>
                     `;
                     
-                    // Si la respuesta incluye una URL de imagen, mostrarla
+                    // Información sobre URL de imagen si está disponible, pero NO cargarla
                     if (data.questions[0].image) {
-                        createProxyImage(data.questions[0].image, document.getElementById('testImage'));
                         resultDiv.innerHTML += `
                             <p>URL de la imagen: ${data.questions[0].image}</p>
+                            <p class="info">Para ver la imagen, utiliza la opción "Cargar Test" con el ID generado.</p>
                         `;
                     }
                     

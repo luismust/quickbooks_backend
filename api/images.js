@@ -9,7 +9,23 @@ async function serveImageAsBinary(url, res, req) {
     console.log(`[IMAGES] Retrieving binary data from: ${url}`);
     console.log(`[IMAGES] Request origin: ${req.headers.origin || 'Unknown'}`);
     
-    const response = await fetch(url);
+    // Configurar cabeceras CORS desde el principio (incluso antes de obtener la imagen)
+    // De esta manera, si hay un error, las cabeceras ya estarán configuradas
+    const origin = req.headers.origin || '*';
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Siempre usar '*' para imágenes
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'image/*',
+        'User-Agent': 'vercel-serverless-function',
+      },
+      timeout: 5000 // 5 segundos timeout
+    });
     
     if (!response.ok) {
       console.error(`[IMAGES] Failed to fetch image: ${response.status} ${response.statusText}`);
@@ -21,19 +37,10 @@ async function serveImageAsBinary(url, res, req) {
     
     console.log(`[IMAGES] Successfully retrieved image: ${contentType}, ${buffer.length} bytes`);
     
-    // Configurar cabeceras de CORS específicas para la solicitud
-    const origin = req.headers.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
-    
     // Configurar cabeceras específicas para la imagen
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     
     // Enviar la imagen
     res.status(200).send(buffer);
@@ -74,6 +81,14 @@ module.exports = async (req, res) => {
     // ===== OPERACIÓN: OBTENER UNA IMAGEN =====
     if (req.method === 'GET' && (id || url) && !action) {
       console.log(`[IMAGES] Request params: id=${id}, url=${url}, redirect=${redirect}, fallback=${fallback}`);
+      console.log(`[IMAGES] Origin: ${req.headers.origin || 'unknown'}, Referer: ${req.headers.referer || 'unknown'}`);
+      
+      // Reforzar encabezados CORS para cualquier operación GET
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
+      res.setHeader('Access-Control-Max-Age', '86400');
       
       // Si tenemos una URL directa
       if (url) {
@@ -145,26 +160,48 @@ module.exports = async (req, res) => {
           if (redirect === '1' || redirect === 'true') {
             console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}, origin: ${req.headers.origin || 'Unknown'}`);
             
-            // Siempre intentar servir la imagen como binario primero (evita problemas CORS)
-            console.log(`[IMAGES] Attempting to serve image as binary data`);
-            const success = await serveImageAsBinary(imageUrl, res, req);
-            if (success) {
-              return; // La respuesta ya fue enviada por serveImageAsBinary
+            // Siempre añadir encabezados CORS aquí también para evitar problemas
+            // No importa si es redundante, mejor asegurar que los encabezados estén presentes
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
+            
+            // Intentar servir directamente como binario
+            try {
+              const success = await serveImageAsBinary(imageUrl, res, req);
+              if (success) {
+                return; // La respuesta ya fue enviada
+              }
+            } catch (err) {
+              console.error(`[IMAGES] Error serving binary: ${err.message}`);
             }
             
-            // Si el modo binario falló, agregar encabezados y hacer redirección
-            console.log(`[IMAGES] Binary serving failed, setting headers for redirect`);
+            // Si fallamos en binario, intentar con HTML iframe como respaldo
+            if (redirect === 'data' || fallback === '1') {
+              console.log(`[IMAGES] Attempting iframe HTML fallback for ${imageUrl}`);
+              return res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <title>Image Proxy</title>
+                  <meta http-equiv="Access-Control-Allow-Origin" content="*" />
+                  <style>
+                    body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+                    img { max-width: 100%; max-height: 100%; display: block; margin: 0 auto; }
+                  </style>
+                </head>
+                <body>
+                  <img src="${imageUrl}" crossorigin="anonymous" />
+                </body>
+                </html>
+              `);
+            }
             
-            // Configurar encabezados para la redirección
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            res.setHeader('X-Content-Type-Options', 'nosniff');
+            // Como último recurso, hacer redirección 302
+            console.log(`[IMAGES] Using 302 redirect as last resort`);
             res.setHeader('Location', imageUrl);
-            
-            // Añadir encabezados para depuración
-            res.setHeader('X-Debug-Origin', req.headers.origin || 'Unknown');
-            res.setHeader('X-Debug-ImageUrl', imageUrl);
-            
-            return res.status(302).end();  // Usar 302 para redirección temporal
+            return res.status(302).end();
           }
           
           return res.status(200).json({
