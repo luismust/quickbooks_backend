@@ -79,112 +79,62 @@ function cleanQuestionForAirtable(question) {
 }
 
 // Función para guardar una imagen usando Vercel Blob Storage
-async function saveImageToBlob(imageId, imageData) {
+async function saveImageToBlob(imageData, customId = null) {
+  if (!imageData || typeof imageData !== 'string') {
+    console.error('[SAVE-TEST] Error: Invalid image data provided');
+    return null;
+  }
+  
   try {
-    // Si falta algún dato necesario, simplemente devolver una URL vacía
-    if (!imageId || !imageData) {
-      console.log('[SAVE-TEST] Skipping image upload due to missing data');
-      return { url: '', realImageId: '' };
+    // Extraer datos base64
+    const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      console.error('[SAVE-TEST] Invalid image format. Expected base64 data:image/xxx');
+      return null;
     }
     
-    console.log(`[SAVE-TEST] Processing image ${imageId}, data length: ${imageData ? imageData.length : 0}`);
+    const mimeType = matches[1];
+    const base64Content = matches[2];
+    const imageBuffer = Buffer.from(base64Content, 'base64');
     
-    // Extraer información de la imagen base64
-    let fileName, mimeType, base64Content;
+    // Usar el ID personalizado si se proporciona, o generar uno nuevo
+    const imageId = customId || crypto.randomBytes(8).toString('hex');
     
-    if (typeof imageData !== 'string') {
-      console.warn(`[SAVE-TEST] Image data for ${imageId} is not a string, type: ${typeof imageData}`);
-      return { url: '', realImageId: '' };
+    // Generar un nombre de archivo consistente con el formato esperado por load-tests.js
+    const extension = mimeType.split('/')[1] || 'jpg';
+    const fileName = `image_${imageId}.${extension}`;
+    
+    console.log(`[SAVE-TEST] Saving image to Vercel Blob: ${fileName} (${mimeType}, ${imageBuffer.length} bytes)`);
+    
+    // Crear un stream a partir del buffer
+    const { Readable } = require('stream');
+    const stream = new Readable();
+    stream.push(imageBuffer);
+    stream.push(null); // Indica fin del stream
+    
+    // Subir la imagen a Vercel Blob Storage
+    const blob = await blobModule.put(fileName, stream, {
+      contentType: mimeType,
+      access: 'public',
+    });
+    
+    if (!blob || !blob.url) {
+      throw new Error('Failed to upload to Vercel Blob Storage');
     }
     
-    if (imageData.startsWith('data:')) {
-      // Formato: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
-      const matches = imageData.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
-      
-      if (!matches || matches.length !== 3) {
-        console.warn(`[SAVE-TEST] Invalid base64 image format for ${imageId}, matches: ${matches ? matches.length : 0}`);
-        return { url: '', realImageId: '' };
-      }
-      
-      mimeType = matches[1];
-      base64Content = matches[2];
-      
-      // Generar un nombre de archivo basado en el tipo MIME y el ID
-      const extension = mimeType.split('/')[1] || 'jpg';
-      fileName = `image_${imageId}.${extension}`;
-      
-      console.log(`[SAVE-TEST] Successfully extracted image data for ${imageId}, mime: ${mimeType}, filename: ${fileName}`);
-    } else {
-      // Si no es data:, simplemente saltarlo
-      console.warn(`[SAVE-TEST] Unsupported image format for ${imageId}, starts with: ${imageData.substring(0, 10)}...`);
-      return { url: '', realImageId: '' };
-    }
+    console.log(`[SAVE-TEST] Imagen guardada con éxito. URL: ${blob.url}`);
     
-    // Validar que el contenido base64 es válido
-    if (!base64Content || base64Content.length < 100) {
-      console.warn(`[SAVE-TEST] Base64 content too short or invalid for ${imageId}, length: ${base64Content ? base64Content.length : 0}`);
-      return { url: '', realImageId: '' };
-    }
-    
-    try {
-      // Verificar si el módulo de blob está disponible
-      if (!blobModule || !blobModule.put) {
-        console.error('[SAVE-TEST] @vercel/blob module or put function not available');
-        return { url: '', realImageId: '' };
-      }
-      
-      // Usar Vercel Blob Storage
-      console.log(`[SAVE-TEST] Uploading image ${imageId} to Vercel Blob Storage`);
-      
-      // Convertir base64 a buffer para upload
-      const buffer = Buffer.from(base64Content, 'base64');
-      
-      if (!buffer || buffer.length === 0) {
-        console.error(`[SAVE-TEST] Failed to create buffer from base64 for ${imageId}`);
-        return { url: '', realImageId: '' };
-      }
-      
-      console.log(`[SAVE-TEST] Created buffer of size ${buffer.length} bytes for ${imageId}`);
-      
-      // Extraer el ID real que se usará en el nombre del archivo (sin prefijos como 'q_')
-      let realImageId = imageId;
-      if (imageId.startsWith('q_')) {
-        // Si es un ID de pregunta, podríamos querer usar otro ID más adecuado
-        realImageId = imageId.substring(2); // Quitar el prefijo q_
-      }
-      
-      // Asegurar que realmente tengamos un nombre de archivo con el ID real
-      fileName = `image_${realImageId}.${mimeType.split('/')[1] || 'jpg'}`;
-      console.log(`[SAVE-TEST] Using real image ID: ${realImageId}, filename: ${fileName}`);
-      
-      // Subir a Vercel Blob Storage usando el módulo importado
-      const blob = await blobModule.put(fileName, buffer, {
-        contentType: mimeType,
-        access: 'public', // Hacemos que sea accesible públicamente
-      });
-      
-      if (!blob || !blob.url) {
-        console.error(`[SAVE-TEST] Failed to upload to Vercel Blob Storage for ${imageId}, no blob URL returned`);
-        return { url: '', realImageId: '' };
-      }
-      
-      console.log(`[SAVE-TEST] Successfully uploaded image to Vercel Blob: ${blob.url}`);
-      
-      return { 
-        url: blob.url, 
-        realImageId: realImageId, 
-        blobPath: fileName
-      };
-    } catch (uploadError) {
-      console.error(`[SAVE-TEST] Failed to upload image ${imageId}:`, uploadError);
-      console.error(`[SAVE-TEST] Stack trace:`, uploadError.stack);
-      // No propagar el error, simplemente devolver URL vacía
-      return { url: '', realImageId: '' };
-    }
+    // Devolver información completa de la imagen
+    return { 
+      url: blob.url,
+      id: imageId,  // Solo devolvemos un ID, y es el que usamos en el nombre del archivo
+      size: imageBuffer.length,
+      type: mimeType,
+      fileName: fileName
+    };
   } catch (error) {
-    console.error('[SAVE-TEST] Error in saveImageToBlob:', error);
-    console.error('[SAVE-TEST] Stack trace:', error.stack);
-    return { url: '', realImageId: '' };
+    console.error(`[SAVE-TEST] Error al guardar la imagen en Blob Storage: ${error.message}`);
+    return null;
   }
 }
 
@@ -513,15 +463,17 @@ module.exports = async (req, res) => {
                 continue;
               }
               
-              const imageResult = await saveImageToBlob(img.imageId, img.imageData);
-              if (imageResult.url) {
+              const imageResult = await saveImageToBlob(img.imageData, img.imageId);
+              if (imageResult) {
                 console.log(`[SAVE-TEST:BACKGROUND] Successfully uploaded image to ${imageResult.url}`);
                 imageResults.push({
                   questionId: img.questionId,
                   imageId: img.imageId,
                   url: imageResult.url,
-                  realImageId: imageResult.realImageId,
-                  blobPath: imageResult.blobPath
+                  id: imageResult.id,
+                  size: imageResult.size,
+                  type: imageResult.type,
+                  fileName: imageResult.fileName
                 });
               } else {
                 console.error(`[SAVE-TEST:BACKGROUND] Failed to upload image for imageId=${img.imageId}`);
@@ -556,23 +508,17 @@ module.exports = async (req, res) => {
                   // Actualizar la URL de la imagen
                   q.image = imageResult.url;
                   
-                  // También guardar el ID real de la imagen si está disponible
-                  if (imageResult.realImageId) {
-                    console.log(`[SAVE-TEST:BACKGROUND] Saving real image ID: ${imageResult.realImageId} for question ${q.id}`);
-                    q.realImageId = imageResult.realImageId;
-                    
-                    // Actualizar también el imageId si es diferente
-                    if (q.imageId !== imageResult.realImageId) {
-                      console.log(`[SAVE-TEST:BACKGROUND] Updating imageId from ${q.imageId} to ${imageResult.realImageId}`);
-                      q.originalImageId = q.imageId; // Guardar el original por referencia
-                      q.imageId = imageResult.realImageId;
-                    }
-                  }
+                  // Guardar también el ID de la imagen
+                  q.imageId = imageResult.id;
                   
-                  // Guardar también el path del blob si está disponible
-                  if (imageResult.blobPath) {
-                    q.blobPath = imageResult.blobPath;
-                  }
+                  // Guardar también el tamaño de la imagen
+                  q.size = imageResult.size;
+                  
+                  // Guardar también el tipo de la imagen
+                  q.type = imageResult.type;
+                  
+                  // Guardar también el nombre del archivo
+                  q.fileName = imageResult.fileName;
                 }
               });
               

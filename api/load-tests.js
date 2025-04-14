@@ -100,58 +100,25 @@ module.exports = async (req, res) => {
         questions = questions.map(question => {
           const processedQuestion = { ...question };
           
-          // Determinar el mejor ID para usar
-          let bestImageId = null;
-          
-          // Priorizar el ID real de la imagen si está disponible
-          if (question.realImageId) {
-            bestImageId = question.realImageId;
-            console.log(`[LOAD-TESTS] Using realImageId: ${bestImageId}`);
-          } 
-          // Si hay imageId, usarlo como segunda opción
-          else if (question.imageId) {
-            bestImageId = question.imageId;
-            console.log(`[LOAD-TESTS] Using imageId: ${bestImageId}`);
-          }
-          
-          // Si tenemos un ID de imagen (real o normal), generar la URL
-          if (bestImageId) {
+          // Usar solo el ID de imagen definido (sin duplicidades)
+          if (question.imageId) {
             // Usar una URL completa (incluir https://)
             let apiUrl = process.env.VERCEL_URL || 'quickbooks-backend.vercel.app';
             apiUrl = ensureHttpsProtocol(apiUrl);
             
             // Usar redirección directa para que el frontend reciba la imagen directamente
-            const imageUrl = `${apiUrl}/api/images?id=${bestImageId}&redirect=1`;
+            const imageUrl = `${apiUrl}/api/images?id=${question.imageId}&redirect=1`;
             processedQuestion.image = imageUrl;
             
-            // Mantener los IDs originales para referencia
-            if (question.realImageId) processedQuestion.realImageId = question.realImageId;
-            if (question.imageId) processedQuestion.imageId = question.imageId;
+            // Mantener el mismo ID para evitar duplicaciones
+            processedQuestion.imageId = question.imageId;
             
-            // Incluir cualquier otra información relevante sobre la imagen
-            if (question.blobPath) processedQuestion.blobPath = question.blobPath;
-            
-            console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for bestImageId: ${bestImageId}`);
+            console.log(`[LOAD-TESTS] Generated image URL: ${imageUrl} for imageId: ${question.imageId}`);
           }
           // Si hay una imagen que ya es una URL HTTP, mantenerla
           else if (question.image && question.image.startsWith('http')) {
             processedQuestion.image = question.image;
             console.log(`[LOAD-TESTS] Using existing HTTP image URL: ${question.image}`);
-            
-            // Intentar extraer un ID de imagen de la URL
-            if (question.image.includes('vercel-blob.com')) {
-              const matches = question.image.match(/image_([^./]+)/);
-              if (matches && matches[1]) {
-                const extractedId = matches[1];
-                console.log(`[LOAD-TESTS] Extracted image ID from URL: ${extractedId}`);
-                processedQuestion.extractedImageId = extractedId;
-                
-                // Si no hay imageId, usar el extraído
-                if (!processedQuestion.imageId) {
-                  processedQuestion.imageId = extractedId;
-                }
-              }
-            }
           }
           // Si no hay imagen ni imageId, asegurarse de que image sea null
           else if (!question.image) {

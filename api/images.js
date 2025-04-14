@@ -60,168 +60,55 @@ module.exports = async (req, res) => {
     if (req.method === 'GET' && id && !action) {
       console.log(`[IMAGES] Looking for image with ID: ${id}, redirect=${redirect}`);
       
-      // Limpiar el ID - si viene con formato q_123456 necesitamos quitarle el prefijo q_
+      // Limpiar el ID - eliminar cualquier prefijo si existe
       let cleanId = id;
-      if (id.startsWith('q_')) {
-        // Si empieza con q_, es posible que sea un ID de pregunta, intentar extraer el ID real
-        console.log(`[IMAGES] Input ID is question format: ${id}, cleaning prefix q_`);
-        cleanId = id.substring(2); // quitar el prefijo q_
-      }
       
-      // Si el ID no tiene el prefijo 'image_', hacer búsquedas con y sin él
-      let searchResults = [];
-      let searchPrefixes = [];
-      
-      // Búsqueda 1: Buscar con prefijo image_ + ID
-      let searchPrefix1 = cleanId.startsWith('image_') ? cleanId : `image_${cleanId}`;
-      searchPrefixes.push(searchPrefix1);
-      console.log(`[IMAGES] Search attempt 1: ${searchPrefix1}`);
+      // Si el ID no tiene el prefijo 'image_', añadirlo para buscar en Blob Storage
+      let searchPrefix = cleanId.startsWith('image_') ? cleanId : `image_${cleanId}`;
+      console.log(`[IMAGES] Search using prefix: ${searchPrefix}`);
       
       try {
-        const blobs1 = await list({
-          prefix: searchPrefix1,
+        // Búsqueda directa con el ID limpio
+        const blobs = await list({
+          prefix: searchPrefix,
           limit: 5
         });
         
-        if (blobs1.blobs && blobs1.blobs.length > 0) {
-          searchResults = searchResults.concat(blobs1.blobs);
-          console.log(`[IMAGES] Found ${blobs1.blobs.length} blobs with prefix ${searchPrefix1}`);
-        }
-      } catch (err) {
-        console.error(`[IMAGES] Error in search 1:`, err);
-      }
-      
-      // Búsqueda 2: Buscar sin prefijo, posiblemente el ID ya sea el nombre completo
-      if (searchResults.length === 0 && !cleanId.startsWith('image_')) {
-        try {
-          const blobs1a = await list({
-            limit: 100
+        if (!blobs.blobs || blobs.blobs.length === 0) {
+          console.warn(`[IMAGES] No image found for ID: ${id} with search prefix: ${searchPrefix}`);
+          return res.status(404).json({ 
+            error: 'Image not found', 
+            id: id,
+            searchPrefix: searchPrefix
           });
+        }
+        
+        // Obtener el primer blob que coincide
+        const blob = blobs.blobs[0];
+        const imageUrl = blob.url;
+        
+        console.log(`[IMAGES] Found image: ${blob.pathname}, URL: ${imageUrl}`);
+        
+        // Si se solicita redirección, redireccionar directamente
+        if (redirect === '1' || redirect === 'true') {
+          console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}`);
           
-          if (blobs1a.blobs && blobs1a.blobs.length > 0) {
-            // Buscar exactamente el pathname
-            const exactMatches = blobs1a.blobs.filter(blob => 
-              blob.pathname === cleanId
-            );
-            
-            if (exactMatches.length > 0) {
-              searchResults = searchResults.concat(exactMatches);
-              console.log(`[IMAGES] Found ${exactMatches.length} blobs with exact pathname ${cleanId}`);
-            }
-          }
-        } catch (err) {
-          console.error(`[IMAGES] Error in pathname search:`, err);
-        }
-      }
-      
-      // Búsqueda 3: Buscar con un patrón más amplio
-      if (searchResults.length === 0) {
-        try {
-          // Buscar patrones que puedan contener el ID en cualquier parte del nombre
-          const blobs2 = await list({
-            limit: 100
-          });
+          // Agregar encabezados para caché y CORS antes de redireccionar
+          res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 24 horas
+          res.setHeader('X-Content-Type-Options', 'nosniff');
           
-          if (blobs2.blobs && blobs2.blobs.length > 0) {
-            // Filtrar los resultados que contengan el ID en alguna parte
-            const filteredBlobs = blobs2.blobs.filter(blob => 
-              blob.pathname.includes(cleanId) || 
-              (cleanId.length > 8 && blob.pathname.includes(cleanId.substring(0, 8)))
-            );
-            
-            if (filteredBlobs.length > 0) {
-              searchResults = searchResults.concat(filteredBlobs);
-              console.log(`[IMAGES] Found ${filteredBlobs.length} blobs through pattern matching for ${cleanId}`);
+          // Intentar servir la imagen directamente en lugar de redirigir
+          if (redirect === 'data') {
+            console.log(`[IMAGES] Attempting to serve image as binary data`);
+            const success = await serveImageAsBinary(imageUrl, res);
+            if (success) {
+              return; // La respuesta ya fue enviada por serveImageAsBinary
             }
+            console.log(`[IMAGES] Binary data serving failed, falling back to redirect`);
           }
-        } catch (err) {
-          console.error(`[IMAGES] Error in search 3:`, err);
-        }
-      }
-      
-      // Búsqueda 4: Si llegamos hasta aquí sin resultados y el ID es largo, intentar diferentes longitudes
-      if (searchResults.length === 0 && cleanId.length > 8) {
-        for (let length of [16, 12, 8]) {
-          if (cleanId.length >= length) {
-            const partialId = cleanId.substring(0, length);
-            searchPrefixes.push(`image_${partialId}`);
-            
-            try {
-              console.log(`[IMAGES] Trying with shorter ID: image_${partialId}`);
-              const blobsPartial = await list({
-                prefix: `image_${partialId}`,
-                limit: 5
-              });
-              
-              if (blobsPartial.blobs && blobsPartial.blobs.length > 0) {
-                searchResults = searchResults.concat(blobsPartial.blobs);
-                console.log(`[IMAGES] Found ${blobsPartial.blobs.length} blobs with prefix image_${partialId}`);
-                break; // Si encontramos algo, no seguir buscando
-              }
-            } catch (err) {
-              console.error(`[IMAGES] Error searching with partial ID ${partialId}:`, err);
-            }
-          }
-        }
-      }
-      
-      console.log(`[IMAGES] Total search results: ${searchResults.length}`);
-      
-      if (searchResults.length === 0) {
-        console.warn(`[IMAGES] No image found for ID: ${id} after multiple search attempts`);
-        return res.status(404).json({ 
-          error: 'Image not found', 
-          id: id,
-          cleanId: cleanId,
-          searchPatterns: searchPrefixes
-        });
-      }
-      
-      // Obtener el primer blob que coincide
-      const blob = searchResults[0];
-      const imageUrl = blob.url;
-      
-      console.log(`[IMAGES] Found image: ${blob.pathname}, URL: ${imageUrl}`);
-      
-      // Si se solicita redirección, redireccionar directamente
-      if (redirect === '1' || redirect === 'true') {
-        console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}`);
-        
-        // Agregar encabezados para caché y CORS antes de redireccionar
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 24 horas
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        
-        // Intentar servir la imagen directamente en lugar de redirigir
-        if (redirect === 'data') {
-          console.log(`[IMAGES] Attempting to serve image as binary data`);
-          const success = await serveImageAsBinary(imageUrl, res);
-          if (success) {
-            return; // La respuesta ya fue enviada por serveImageAsBinary
-          }
-          console.log(`[IMAGES] Binary data serving failed, falling back to redirect`);
-          // Si falla, continuamos con la redirección normal
-        }
-        
-        // Usar un iframe o una etiqueta img directa podría funcionar mejor que una redirección
-        if (redirect === 'iframe') {
-          return res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>Image ${id}</title>
-              <style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden}img{max-width:100%;max-height:100%;}</style>
-              <meta http-equiv="Access-Control-Allow-Origin" content="*">
-            </head>
-            <body>
-              <img src="${imageUrl}" alt="Image ${id}" crossorigin="anonymous" />
-            </body>
-            </html>
-          `);
-        } else if (redirect === 'html') {
-          return res.send(`<img src="${imageUrl}" alt="Image ${id}" style="max-width:100%" crossorigin="anonymous" />`);
-        } else {
+          
           // Intentar servir como binario primero antes de redirigir
-          console.log(`[IMAGES] Attempting to serve image as binary data before standard redirect`);
+          console.log(`[IMAGES] Attempting to serve image as binary data before redirect`);
           const success = await serveImageAsBinary(imageUrl, res);
           if (success) {
             return; // La respuesta ya fue enviada por serveImageAsBinary
@@ -231,17 +118,20 @@ module.exports = async (req, res) => {
           console.log(`[IMAGES] Falling back to standard redirect`);
           return res.redirect(imageUrl);
         }
+        
+        return res.status(200).json({
+          id: cleanId,
+          url: imageUrl,
+          size: blob.size,
+          type: blob.contentType || 'image/jpeg',
+          source: 'vercel-blob',
+          pathname: blob.pathname,
+          uploadedAt: blob.uploadedAt
+        });
+      } catch (error) {
+        console.error(`[IMAGES] Error searching for image: ${error.message}`);
+        return res.status(500).json({ error: 'Failed to retrieve image', details: error.message });
       }
-      
-      return res.status(200).json({
-        id: id,
-        url: imageUrl,
-        size: blob.size,
-        type: blob.contentType || 'image/jpeg',
-        source: 'vercel-blob',
-        pathname: blob.pathname,
-        uploadedAt: blob.uploadedAt
-      });
     }
 
     // ===== OPERACIÓN: LISTAR IMÁGENES =====
