@@ -18,6 +18,7 @@
     { "src": "/api/save-test", "dest": "/api/save-test.js", "methods": ["POST", "OPTIONS"] },
     { "src": "/api/load-tests", "dest": "/api/load-tests.js", "methods": ["GET", "OPTIONS"] },
     { "src": "/api/delete-test", "dest": "/api/delete-test.js", "methods": ["POST", "OPTIONS"] },
+    { "src": "/api/test-results", "dest": "/api/test-results.js", "methods": ["POST", "OPTIONS"] },
     { 
       "src": "/api/tests/([^/]+)",
       "dest": "/api/tests.js",
@@ -57,6 +58,10 @@
       "maxDuration": 10
     },
     "api/delete-test.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/test-results.js": {
       "memory": 1024,
       "maxDuration": 10
     },
