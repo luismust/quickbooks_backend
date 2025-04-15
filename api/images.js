@@ -112,7 +112,7 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
+  
   // Responder inmediatamente a las solicitudes OPTIONS
   if (req.method === 'OPTIONS') {
     console.log(`[IMAGES] Handling OPTIONS request from origin: ${origin}`);
@@ -196,13 +196,13 @@ module.exports = async (req, res) => {
           }
           
           // Obtener el primer blob que coincide
-          const blob = blobs.blobs[0];
-          const imageUrl = blob.url;
+      const blob = blobs.blobs[0];
+      const imageUrl = blob.url;
           
           console.log(`[IMAGES] Found image: ${blob.pathname}, URL: ${imageUrl}`);
-          
-          // Si se solicita redirección, redireccionar directamente
-          if (redirect === '1' || redirect === 'true') {
+      
+      // Si se solicita redirección, redireccionar directamente
+      if (redirect === '1' || redirect === 'true') {
             console.log(`[IMAGES] Redirecting to Blob URL: ${imageUrl}, origin: ${req.headers.origin || 'Unknown'}`);
             
             // Intentar servir directamente como binario (preferido)
@@ -248,17 +248,17 @@ module.exports = async (req, res) => {
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Expose-Headers', 'Location');
             return res.status(302).end();
-          }
-          
-          return res.status(200).json({
+      }
+      
+      return res.status(200).json({
             id: cleanId,
-            url: imageUrl,
-            size: blob.size,
-            type: blob.contentType || 'image/jpeg',
-            source: 'vercel-blob',
+        url: imageUrl,
+        size: blob.size,
+        type: blob.contentType || 'image/jpeg',
+        source: 'vercel-blob',
             pathname: blob.pathname,
-            uploadedAt: blob.uploadedAt
-          });
+        uploadedAt: blob.uploadedAt
+      });
         } catch (error) {
           console.error(`[IMAGES] Error searching for image: ${error.message}`);
           return res.status(500).json({ error: 'Failed to retrieve image', details: error.message });

@@ -151,11 +151,11 @@ async function saveImageToBlob(imageData, customId = null) {
     
     // Subir la imagen a Vercel Blob Storage
     const blob = await blobModule.put(fileName, stream, {
-      contentType: mimeType,
+        contentType: mimeType,
       access: 'public',
-    });
-    
-    if (!blob || !blob.url) {
+      });
+      
+      if (!blob || !blob.url) {
       throw new Error('Failed to upload to Vercel Blob Storage');
     }
     
