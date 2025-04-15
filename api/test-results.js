@@ -66,7 +66,17 @@ module.exports = async (req, res) => {
     const date = testResult.Date || testResult.date;
     
     // Convertir score a número si es una cadena
-    const scoreNumber = typeof score === 'string' ? parseFloat(score) : score;
+    let scoreNumber;
+    if (typeof score === 'string') {
+      // Si contiene una barra, extraer solo el primer número (ej: "100/100" -> 100)
+      if (score.includes('/')) {
+        scoreNumber = parseFloat(score.split('/')[0]);
+      } else {
+        scoreNumber = parseFloat(score);
+      }
+    } else {
+      scoreNumber = score;
+    }
     
     // Validar datos requeridos
     if (!name || !test || (typeof scoreNumber !== 'number' || isNaN(scoreNumber))) {
@@ -91,7 +101,7 @@ module.exports = async (req, res) => {
         Test: test,
         Score: scoreNumber,
         Status: status || (scoreNumber >= 60 ? 'Passed' : 'Failed'), // Valor por defecto si no se proporciona
-        Date: date ? new Date(date) : new Date() // Enviar como objeto Date para Airtable
+        Date: date || new Date().toISOString() // Enviar como string ISO 8601 para Airtable
       }
     };
     
@@ -117,7 +127,7 @@ module.exports = async (req, res) => {
       // Verificar si es un error de tabla no encontrada
       if (airtableError.message && airtableError.message.includes('Table TestResults not found')) {
         return res.status(500).json({ 
-          error: 'Table TestResults not found in Airtable. Please create this table first with fields: Name (text), Test (text), Score (number), Status (text), Date (date)',
+          error: 'Table TestResults not found in Airtable. Please create this table first with fields: Name (text), Test (text), Score (number), Status (text), Date (date ISO 8601)',
           details: airtableError.message
         });
       }
