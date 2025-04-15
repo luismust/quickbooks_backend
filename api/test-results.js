@@ -58,16 +58,24 @@ module.exports = async (req, res) => {
     
     console.log('[TEST-RESULTS] Received test result data:', testResult);
     
-    // Validar datos requeridos
-    const { Name, Test, Score, Status } = testResult;
+    // Normalizar nombres de campos (aceptar tanto minúsculas como mayúsculas)
+    const name = testResult.Name || testResult.name;
+    const test = testResult.Test || testResult.test;
+    const score = testResult.Score || testResult.score;
+    const status = testResult.Status || testResult.status;
+    const date = testResult.Date || testResult.date;
     
-    if (!Name || !Test || typeof Score !== 'number') {
+    // Convertir score a número si es una cadena
+    const scoreNumber = typeof score === 'string' ? parseFloat(score) : score;
+    
+    // Validar datos requeridos
+    if (!name || !test || (typeof scoreNumber !== 'number' || isNaN(scoreNumber))) {
       return res.status(400).json({ 
         error: 'Name, Test and Score are required fields',
         received: { 
-          hasName: Boolean(Name), 
-          hasTest: Boolean(Test), 
-          scoreIsNumber: typeof Score === 'number'
+          hasName: Boolean(name), 
+          hasTest: Boolean(test), 
+          scoreIsNumber: typeof scoreNumber === 'number' && !isNaN(scoreNumber)
         }
       });
     }
@@ -79,11 +87,11 @@ module.exports = async (req, res) => {
     // Crear el registro con la fecha actual si no se proporciona
     const recordData = {
       fields: {
-        Name: Name,
-        Test: Test,
-        Score: Score,
-        Status: Status || (Score >= 60 ? 'Passed' : 'Failed'), // Valor por defecto si no se proporciona
-        Date: testResult.Date ? new Date(testResult.Date) : new Date() // Enviar como objeto Date para Airtable
+        Name: name,
+        Test: test,
+        Score: scoreNumber,
+        Status: status || (scoreNumber >= 60 ? 'Passed' : 'Failed'), // Valor por defecto si no se proporciona
+        Date: date ? new Date(date) : new Date() // Enviar como objeto Date para Airtable
       }
     };
     
