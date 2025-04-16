@@ -57,7 +57,10 @@ module.exports = async (req, res) => {
     }
     
     // Extraer el ID del test (puede venir en el cuerpo o en la URL)
-    const testId = req.query.id || requestData.id;
+    const testId = req.query.id || (requestData && requestData.id);
+    
+    console.log(`[EDIT-TEST] Request query params:`, req.query);
+    console.log(`[EDIT-TEST] Extracted test ID: ${testId}`);
     
     if (!testId) {
       return res.status(400).json({ 
@@ -84,7 +87,9 @@ module.exports = async (req, res) => {
     // Verificar primero si el test existe
     let existingRecord;
     try {
+      console.log(`[EDIT-TEST] Finding test with ID: ${testId}`);
       existingRecord = await base(tableName).find(testId);
+      console.log(`[EDIT-TEST] Found test: ${existingRecord.id}, with fields:`, Object.keys(existingRecord.fields));
     } catch (findError) {
       console.error(`[EDIT-TEST] Error finding test with ID ${testId}:`, findError);
       
@@ -203,7 +208,49 @@ module.exports = async (req, res) => {
     let updatedRecord;
     
     try {
-      updatedRecord = await base(tableName).update(testId, { fields: updateData });
+      // Crear un objeto con los campos para actualizar en formato esperado por Airtable
+      const fieldsToUpdate = {};
+      
+      // Transferir cada campo al objeto en el formato correcto
+      if (requestData.name !== undefined) {
+        fieldsToUpdate[FIELDS.NAME] = requestData.name;
+      }
+      
+      if (requestData.description !== undefined) {
+        fieldsToUpdate[FIELDS.DESCRIPTION] = requestData.description;
+      }
+      
+      if (requestData.maxScore !== undefined) {
+        fieldsToUpdate[FIELDS.MAX_SCORE] = requestData.maxScore;
+      }
+      
+      if (requestData.minScore !== undefined) {
+        fieldsToUpdate[FIELDS.MIN_SCORE] = requestData.minScore;
+      }
+      
+      if (requestData.passingMessage !== undefined) {
+        fieldsToUpdate[FIELDS.PASSING_MESSAGE] = requestData.passingMessage;
+      }
+      
+      if (requestData.failingMessage !== undefined) {
+        fieldsToUpdate[FIELDS.FAILING_MESSAGE] = requestData.failingMessage;
+      }
+      
+      // Si hay preguntas procesadas, añadirlas
+      if (updateData[FIELDS.QUESTIONS]) {
+        fieldsToUpdate[FIELDS.QUESTIONS] = updateData[FIELDS.QUESTIONS];
+      }
+      
+      console.log('[EDIT-TEST] Final fields to update:', fieldsToUpdate);
+      
+      // Realizar la actualización usando la forma que funciona en otros archivos
+      updatedRecord = await base(tableName).update([{
+        id: testId,
+        fields: fieldsToUpdate
+      }]);
+      
+      // Dado que update devuelve un array, tomamos el primer elemento
+      updatedRecord = updatedRecord[0];
     } catch (updateError) {
       console.error('[EDIT-TEST] Error updating test:', updateError);
       return res.status(500).json({ 
@@ -214,21 +261,41 @@ module.exports = async (req, res) => {
     
     // Preparar la respuesta
     const responseData = {
-      id: updatedRecord.id,
-      name: updatedRecord.fields[FIELDS.NAME],
-      description: updatedRecord.fields[FIELDS.DESCRIPTION],
-      maxScore: updatedRecord.fields[FIELDS.MAX_SCORE],
-      minScore: updatedRecord.fields[FIELDS.MIN_SCORE],
-      passingMessage: updatedRecord.fields[FIELDS.PASSING_MESSAGE],
-      failingMessage: updatedRecord.fields[FIELDS.FAILING_MESSAGE]
+      id: updatedRecord.id
     };
     
-    // Si hay preguntas, intentar parsearlas para incluirlas en la respuesta
-    try {
-      responseData.questions = JSON.parse(updatedRecord.fields[FIELDS.QUESTIONS] || '[]');
-    } catch (error) {
-      console.warn('[EDIT-TEST] Error parsing questions for response:', error);
-      responseData.questions = [];
+    // Incluir solo los campos que existen en la respuesta
+    if (updatedRecord.fields) {
+      if (updatedRecord.fields[FIELDS.NAME] !== undefined) {
+        responseData.name = updatedRecord.fields[FIELDS.NAME];
+      }
+      if (updatedRecord.fields[FIELDS.DESCRIPTION] !== undefined) {
+        responseData.description = updatedRecord.fields[FIELDS.DESCRIPTION];
+      }
+      if (updatedRecord.fields[FIELDS.MAX_SCORE] !== undefined) {
+        responseData.maxScore = updatedRecord.fields[FIELDS.MAX_SCORE];
+      }
+      if (updatedRecord.fields[FIELDS.MIN_SCORE] !== undefined) {
+        responseData.minScore = updatedRecord.fields[FIELDS.MIN_SCORE];
+      }
+      if (updatedRecord.fields[FIELDS.PASSING_MESSAGE] !== undefined) {
+        responseData.passingMessage = updatedRecord.fields[FIELDS.PASSING_MESSAGE];
+      }
+      if (updatedRecord.fields[FIELDS.FAILING_MESSAGE] !== undefined) {
+        responseData.failingMessage = updatedRecord.fields[FIELDS.FAILING_MESSAGE];
+      }
+    
+      // Si hay preguntas, intentar parsearlas para incluirlas en la respuesta
+      if (updatedRecord.fields[FIELDS.QUESTIONS]) {
+        try {
+          responseData.questions = JSON.parse(updatedRecord.fields[FIELDS.QUESTIONS] || '[]');
+        } catch (error) {
+          console.warn('[EDIT-TEST] Error parsing questions for response:', error);
+          responseData.questions = [];
+        }
+      } else {
+        responseData.questions = [];
+      }
     }
     
     // Enviar respuesta exitosa
