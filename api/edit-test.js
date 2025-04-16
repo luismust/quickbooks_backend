@@ -115,31 +115,31 @@ module.exports = async (req, res) => {
     };
     
     // Construir el objeto de actualización basado en los campos existentes
-    const updateData = { fields: {} };
+    const updateData = {};
     
     // Actualizar campos simples si se proporcionan en la solicitud
     if (requestData.name !== undefined) {
-      updateData.fields[FIELDS.NAME] = requestData.name;
+      updateData[FIELDS.NAME] = requestData.name;
     }
     
     if (requestData.description !== undefined) {
-      updateData.fields[FIELDS.DESCRIPTION] = requestData.description;
+      updateData[FIELDS.DESCRIPTION] = requestData.description;
     }
     
     if (requestData.maxScore !== undefined) {
-      updateData.fields[FIELDS.MAX_SCORE] = requestData.maxScore;
+      updateData[FIELDS.MAX_SCORE] = requestData.maxScore;
     }
     
     if (requestData.minScore !== undefined) {
-      updateData.fields[FIELDS.MIN_SCORE] = requestData.minScore;
+      updateData[FIELDS.MIN_SCORE] = requestData.minScore;
     }
     
     if (requestData.passingMessage !== undefined) {
-      updateData.fields[FIELDS.PASSING_MESSAGE] = requestData.passingMessage;
+      updateData[FIELDS.PASSING_MESSAGE] = requestData.passingMessage;
     }
     
     if (requestData.failingMessage !== undefined) {
-      updateData.fields[FIELDS.FAILING_MESSAGE] = requestData.failingMessage;
+      updateData[FIELDS.FAILING_MESSAGE] = requestData.failingMessage;
     }
     
     // Manejar preguntas (estructura más compleja)
@@ -156,7 +156,7 @@ module.exports = async (req, res) => {
       // Si estamos reemplazando todas las preguntas
       if (Array.isArray(requestData.questions)) {
         console.log('[EDIT-TEST] Replacing all questions');
-        updateData.fields[FIELDS.QUESTIONS] = JSON.stringify(requestData.questions);
+        updateData[FIELDS.QUESTIONS] = JSON.stringify(requestData.questions);
       } 
       // Si estamos modificando preguntas individuales
       else if (typeof requestData.questions === 'object') {
@@ -186,12 +186,12 @@ module.exports = async (req, res) => {
         }
         
         // Guardar las preguntas actualizadas
-        updateData.fields[FIELDS.QUESTIONS] = JSON.stringify(currentQuestions);
+        updateData[FIELDS.QUESTIONS] = JSON.stringify(currentQuestions);
       }
     }
     
     // Verificar si hay campos para actualizar
-    if (Object.keys(updateData.fields).length === 0) {
+    if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ 
         error: 'No valid fields to update',
         message: 'Please provide at least one valid field to update'
@@ -203,7 +203,7 @@ module.exports = async (req, res) => {
     let updatedRecord;
     
     try {
-      updatedRecord = await base(tableName).update(testId, updateData);
+      updatedRecord = await base(tableName).update(testId, { fields: updateData });
     } catch (updateError) {
       console.error('[EDIT-TEST] Error updating test:', updateError);
       return res.status(500).json({ 
